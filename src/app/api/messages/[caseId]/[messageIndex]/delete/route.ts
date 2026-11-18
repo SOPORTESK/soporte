@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
-import { pickPhone } from "@/lib/evolution-phone";
+import { pickPhone, getCandidateJids, findEvolutionMessageKey } from "@/lib/evolution-phone";
 import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
 import { enqueueWaOutbox, removeFromWaOutbox } from "@/lib/wa-outbox";
 
@@ -198,35 +198,58 @@ export async function POST(
 
       let candidates = buildCandidates(evoCfg);
       let refreshedCfg = false;
+      let explicitEvoReject = false;
 
       if (evoCfg?.apiKey && evoCfg?.instance && candidates.length > 0) {
         for (let i = 0; i < candidates.length; i++) {
           const baseUrl = candidates[i];
           try {
-            console.log("[DELETE MSG API] Enviando a Evolution:", baseUrl, JSON.stringify(bodyPayload));
-            const res = await fetch(
-              `${baseUrl}/chat/deleteMessageForEveryone/${encodeURIComponent(evoCfg.instance)}`,
-              {
-                method: "DELETE",
-                headers: {
-                  "Content-Type": "application/json",
-                  apikey: evoCfg.apiKey,
-                },
-                body: JSON.stringify(bodyPayload),
-                signal: AbortSignal.timeout(8000),
-              }
+            const exactKey = await findEvolutionMessageKey(baseUrl, evoCfg.apiKey, evoCfg.instance, messageId);
+            const jidsToTry = Array.from(
+              new Set([exactKey?.remoteJid || "", ...getCandidateJids(caseData, targetJid)].filter(Boolean))
             );
 
-            const resData = await res.json().catch(() => ({}));
-            console.log("[DELETE MSG API] Respuesta de Evolution:", res.status, JSON.stringify(resData));
+            for (const jidCandidate of jidsToTry) {
+              const attemptPayload: any = {
+                ...bodyPayload,
+                remoteJid: jidCandidate,
+                fromMe: typeof exactKey?.fromMe === "boolean" ? exactKey.fromMe : bodyPayload.fromMe,
+                ...(exactKey?.participant ? { participant: exactKey.participant } : {}),
+              };
+              console.log("[DELETE MSG API] Enviando a Evolution:", baseUrl, JSON.stringify(attemptPayload));
+              const res = await fetch(
+                `${baseUrl}/chat/deleteMessageForEveryone/${encodeURIComponent(evoCfg.instance)}`,
+                {
+                  method: "DELETE",
+                  headers: {
+                    "Content-Type": "application/json",
+                    apikey: evoCfg.apiKey,
+                  },
+                  body: JSON.stringify(attemptPayload),
+                  signal: AbortSignal.timeout(8000),
+                }
+              );
 
-            if (res.ok) {
-              whatsappRevoked = true;
-              console.log("[DELETE MSG API] WhatsApp revocado OK vía", baseUrl);
+              const resData = await res.json().catch(() => ({}));
+              console.log("[DELETE MSG API] Respuesta de Evolution:", res.status, JSON.stringify(resData));
+
+              if (res.ok) {
+                whatsappRevoked = true;
+                console.log("[DELETE MSG API] WhatsApp revocado OK vía", baseUrl, "con JID", jidCandidate);
+                break;
+              }
+              const errMsg = String(resData?.response?.message?.[0] || resData?.message || resData?.error || res.status);
+              console.error("[DELETE MSG API] Error en respuesta de Evolution:", res.status, resData);
+              whatsappError = `WhatsApp rechazó eliminar para todos (${res.status}: ${errMsg})`;
+              if (res.status === 400 && /remotejid/i.test(errMsg)) {
+                continue;
+              }
+              if (res.status >= 400 && res.status < 500) {
+                explicitEvoReject = true;
+              }
               break;
             }
-            console.error("[DELETE MSG API] Error en respuesta de Evolution:", res.status, resData);
-            whatsappError = `Evolution API: ${resData?.message || resData?.error || res.status}`;
+            if (whatsappRevoked || explicitEvoReject) break;
           } catch (evoErr: any) {
             console.warn("[DELETE MSG API] Error conectando con Evolution API en", baseUrl, evoErr?.message);
             whatsappError = "Error conectando con Evolution API";
@@ -243,6 +266,13 @@ export async function POST(
       } else {
         whatsappError = "Evolution API no configurada";
         console.error("[DELETE MSG API] Evolution no configurada. url:", !!evoCfg?.url, "key:", !!evoCfg?.apiKey, "instance:", !!evoCfg?.instance);
+      }
+
+      if (!whatsappRevoked && explicitEvoReject) {
+        return NextResponse.json(
+          { ok: false, error: whatsappError || "WhatsApp rechazó eliminar el mensaje para todos." },
+          { status: 400 }
+        );
       }
 
       // Si falló la conexión directa (túnel desde Vercel), delegar revocación al worker local vía wa_outbox_queue

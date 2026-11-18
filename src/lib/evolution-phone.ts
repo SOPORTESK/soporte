@@ -36,3 +36,62 @@ export function pickPhone(c: any): string | null {
   }
   return null;
 }
+
+/** Lista ordenada de posibles JIDs del caso (@lid, @s.whatsapp.net, etc.) para evitar errores de RemoteJid. */
+export function getCandidateJids(c: any, primary?: string | null): string[] {
+  const out: string[] = [];
+  const pushJid = (raw: unknown) => {
+    const s = String(raw || "").trim();
+    if (!s) return;
+    if (s.includes("@")) {
+      if (!out.includes(s)) out.push(s);
+      return;
+    }
+    const norm = normalizePhone(s);
+    if (norm) {
+      const full = `${norm}@s.whatsapp.net`;
+      if (!out.includes(full)) out.push(full);
+    }
+  };
+
+  pushJid(primary);
+  if (typeof c?.cliente === "object" && c?.cliente) {
+    pushJid(c.cliente.lid);
+    pushJid(c.cliente.telefono_real);
+    pushJid(c.cliente.telefono);
+  }
+  pushJid(c?.customer_phone);
+  return out;
+}
+
+/** Consulta en Evolution API el key.remoteJid exacto guardado para un messageId. */
+export async function findEvolutionMessageKey(
+  baseUrl: string,
+  apiKey: string,
+  instance: string,
+  messageId: string
+): Promise<{ remoteJid?: string; fromMe?: boolean; participant?: string } | null> {
+  if (!baseUrl || !apiKey || !instance || !messageId) return null;
+  try {
+    const res = await fetch(`${baseUrl}/chat/findMessages/${encodeURIComponent(instance)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: apiKey },
+      body: JSON.stringify({ where: { key: { id: messageId } }, limit: 1 }),
+      signal: AbortSignal.timeout(3500),
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    const records = data?.messages?.records;
+    const rec = Array.isArray(records) ? records[0] : null;
+    if (rec?.key?.remoteJid) {
+      return {
+        remoteJid: String(rec.key.remoteJid),
+        fromMe: typeof rec.key.fromMe === "boolean" ? rec.key.fromMe : undefined,
+        participant: rec.key.participant ? String(rec.key.participant) : undefined,
+      };
+    }
+  } catch {
+    /* silencioso */
+  }
+  return null;
+}

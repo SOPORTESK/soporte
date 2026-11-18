@@ -365,18 +365,43 @@ function getJobSignature(job) {
 }
 
 async function revokeOutboxItemViaLocalEvo(job) {
-  const payload = job.deletePayload;
+  const payload = job.deletePayload ? { ...job.deletePayload } : null;
   if (!payload || !payload.id || !payload.remoteJid) {
     return { ok: false, status: 400, errorText: 'deletePayload incompleto' };
   }
   const url = `${LOCAL_EVO_URL}/chat/deleteMessageForEveryone/${encodeURIComponent(EVO_INSTANCE)}`;
-  const res = await fetch(url, {
+  let res = await fetch(url, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json', apikey: EVO_API_KEY },
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(10000),
   });
-  const data = await res.json().catch(() => ({}));
+  let data = await res.json().catch(() => ({}));
+  if (!res.ok && res.status === 400) {
+    try {
+      const findRes = await fetch(`${LOCAL_EVO_URL}/chat/findMessages/${encodeURIComponent(EVO_INSTANCE)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: EVO_API_KEY },
+        body: JSON.stringify({ where: { key: { id: payload.id } }, limit: 1 }),
+        signal: AbortSignal.timeout(4000),
+      });
+      if (findRes.ok) {
+        const findData = await findRes.json().catch(() => null);
+        const recKey = findData?.messages?.records?.[0]?.key;
+        if (recKey?.remoteJid && recKey.remoteJid !== payload.remoteJid) {
+          payload.remoteJid = recKey.remoteJid;
+          if (typeof recKey.fromMe === 'boolean') payload.fromMe = recKey.fromMe;
+          res = await fetch(url, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json', apikey: EVO_API_KEY },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(10000),
+          });
+          data = await res.json().catch(() => ({}));
+        }
+      }
+    } catch {}
+  }
   if (!res.ok) {
     return { ok: false, status: res.status, errorText: `evo_${res.status}: ${JSON.stringify(data).slice(0, 160)}` };
   }

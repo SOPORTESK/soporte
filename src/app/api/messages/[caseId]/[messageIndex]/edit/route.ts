@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getEvolutionConfig } from "@/lib/evolution-config";
-import { pickPhone } from "@/lib/evolution-phone";
+import { pickPhone, getCandidateJids, findEvolutionMessageKey } from "@/lib/evolution-phone";
 import { broadcastCaseEvent } from "@/lib/realtime-broadcast";
 import { updateWaOutboxText } from "@/lib/wa-outbox";
 
@@ -168,29 +168,43 @@ export async function POST(
       for (let i = 0; i < candidates.length; i++) {
         const baseUrl = candidates[i];
         try {
-          console.log("[EDIT MSG API] Editando mensaje in-place en WhatsApp:", baseUrl, { messageId, targetJid });
-          const editRes = await fetch(`${baseUrl}/chat/updateMessage/${encodeURIComponent(evoCfg.instance)}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
-            body: JSON.stringify({
-              number: cleanPhone,
-              text: content,
-              key: {
-                remoteJid: targetJid,
-                fromMe: fromMe,
-                id: messageId,
-              },
-            }),
-            signal: AbortSignal.timeout(8000),
-          });
-          const editData = await editRes.json().catch(() => ({}));
-          if (editRes.ok) {
-            editSucceeded = true;
-            console.log("[EDIT MSG API] Mensaje editado in-place OK en WhatsApp vía", baseUrl);
-            break;
+          const exactKey = await findEvolutionMessageKey(baseUrl, evoCfg.apiKey, evoCfg.instance, messageId);
+          const jidsToTry = Array.from(
+            new Set([exactKey?.remoteJid || "", ...getCandidateJids(caseData, targetJid)].filter(Boolean))
+          );
+
+          for (const jidCandidate of jidsToTry) {
+            const effectiveFromMe = typeof exactKey?.fromMe === "boolean" ? exactKey.fromMe : fromMe;
+            const numField = jidCandidate.endsWith("@lid") ? jidCandidate : jidCandidate.split("@")[0].replace(/[^0-9]/g, "") || cleanPhone;
+            console.log("[EDIT MSG API] Editando mensaje in-place en WhatsApp:", baseUrl, { messageId, jidCandidate });
+            const editRes = await fetch(`${baseUrl}/chat/updateMessage/${encodeURIComponent(evoCfg.instance)}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", apikey: evoCfg.apiKey },
+              body: JSON.stringify({
+                number: numField,
+                text: content,
+                key: {
+                  remoteJid: jidCandidate,
+                  fromMe: effectiveFromMe,
+                  id: messageId,
+                },
+              }),
+              signal: AbortSignal.timeout(8000),
+            });
+            const editData = await editRes.json().catch(() => ({}));
+            if (editRes.ok) {
+              editSucceeded = true;
+              console.log("[EDIT MSG API] Mensaje editado in-place OK en WhatsApp vía", baseUrl, "con JID", jidCandidate);
+              break;
+            }
+            const errMsg = String(editData?.response?.message?.[0] || editData?.message || editData?.error || "");
+            console.warn("[EDIT MSG API] WhatsApp updateMessage rechazó la edición:", editRes.status, editData);
+            whatsappError = `WhatsApp rechazó la edición (${editRes.status}: ${errMsg || "no compatible o >15 min"})`;
+            if (editRes.status !== 400 || !/remotejid/i.test(errMsg)) {
+              break;
+            }
           }
-          console.warn("[EDIT MSG API] WhatsApp updateMessage rechazó la edición:", editRes.status, editData);
-          whatsappError = `WhatsApp rechazó la edición (${editRes.status}: ${editData?.response?.message?.[0] || editData?.message || editData?.error || "no compatible o >15 min"})`;
+          if (editSucceeded) break;
         } catch (evoErr: any) {
           console.warn("[EDIT MSG API] Error conectando con Evolution en", baseUrl, evoErr?.message);
           whatsappError = "Error conectando con Evolution API";
