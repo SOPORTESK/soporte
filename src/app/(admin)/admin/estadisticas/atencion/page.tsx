@@ -247,7 +247,7 @@ export default async function EstadisticasAtencionPage({
         return { data: loaded, error: null };
       },
       [],
-      30000, // 30s fresh TTL + SWR instantáneo
+      180000, // 3 min fresh TTL + SWR instantáneo para no re-descargar en cambios de filtro
       35000 // Timeout amplio en frío para descarga inicial ~1.7MB
     ),
     queryWithFallback(

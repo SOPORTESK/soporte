@@ -1283,12 +1283,13 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
 
   const fetchActivity = useCallback(() => {
     if (!agent.email) return;
-    fetch(`/api/activity/timeline?agent=${encodeURIComponent(agent.email)}&date=${new Date().toISOString().split("T")[0]}&metrics=true&_t=${Date.now()}`)
+    fetch(`/api/activity/timeline?agent=${encodeURIComponent(agent.email)}&date=${new Date().toISOString().split("T")[0]}&metrics=only&_t=${Date.now()}`)
       .then(r => r.json())
       .then(d => {
+        const serverMetrics = d?.totalActiveTime !== undefined || d?.totalWorkdayTime !== undefined ? d : d?.metrics;
         const timeline = Array.isArray(d?.timeline) ? d.timeline : [];
-        if (d?.metrics) {
-          setMyMetrics(d.metrics);
+        if (serverMetrics) {
+          setMyMetrics(serverMetrics);
         } else if (timeline.length > 0) {
           const computed = computeUnifiedActivityMetrics(timeline, { toleranceMinutes: toleranceMin });
           const targetDailyHours = computed.targetDailyHours || 10;

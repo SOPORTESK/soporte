@@ -518,7 +518,9 @@ export async function insertActivityLog(entry: ActivityLog): Promise<void> {
   }
   const { error } = await supabase.from("activity_log").insert(insertPayload);
   if (error) console.error("[activity-db] insert error:", error.message);
-  else cacheDeletePrefix("timeline_cache_");
+  else if (normAction.startsWith("inici") || normAction.startsWith("termin")) {
+    cacheDeletePrefix("timeline_cache_");
+  }
 }
 
 export async function getActivityTimeline(
