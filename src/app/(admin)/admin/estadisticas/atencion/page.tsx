@@ -916,7 +916,7 @@ export default async function EstadisticasAtencionPage({
   const categorias: Record<string, number> = {};
   casosConAsig.forEach(c => { if (c.cat) categorias[c.cat] = (categorias[c.cat] || 0) + 1; });
 
-  // ── Problemas por agente (solo humanos): deriva de columna problema, tags o title
+  // ── Problemas por agente (solo humanos): unificado desde problema, tipo_consulta, cat, tags, title y descripción
   const problemasLabels: Record<string, string> = {
     sin_imagen: "Sin imagen", sin_grabacion: "Sin grabación", sin_acceso_remoto: "Sin acceso remoto",
     sin_energia: "Sin energía", error_configuracion: "Error de configuración", conectividad_red: "Conectividad / red",
@@ -924,7 +924,8 @@ export default async function EstadisticasAtencionPage({
     dano_fisico: "Daño físico", reparacion_diagnostico: "Reparación / Diagnóstico", consulta: "Consulta", actualizacion_firmware: "Actualización firmware",
     instalacion_nueva: "Instalación nueva", deteccion_incendio: "Detección incendio",
     control_acceso: "Control de acceso", intrusion_alarma: "Intrusión / alarma", otro: "Otro",
-    configuraciones: "Configuraciones", software: "Software", soporte: "Soporte general", licencias: "Licencias",
+    configuracion: "Configuraciones", configuraciones: "Configuraciones",
+    software: "Software", soporte: "Soporte general", licencias: "Licencias",
     camara: "Cámaras", nvr: "NVR / Grabador", dvr: "DVR / Grabador", alarma: "Alarma / Intrusión",
     incendio: "Detección incendio", red: "Conectividad / red", firmware: "Actualización firmware",
   };
@@ -934,37 +935,88 @@ export default async function EstadisticasAtencionPage({
     modelo_no_validado: "Reset contraseña", desvinculacion: "Desvinculación cuenta", desvinculacion_cuenta: "Desvinculación cuenta",
     sin_imagen: "Sin imagen", sin_grabacion: "Sin grabación", sin_acceso_remoto: "Sin acceso remoto",
     sin_energia: "Sin energía", error_configuracion: "Error de configuración", conectividad_red: "Conectividad / red",
-    dano_fisico: "Daño físico", reparacion_diagnostico: "Reparación / Diagnóstico", consulta: "Consulta", actualizacion_firmware: "Actualización firmware", instalacion_nueva: "Instalación nueva",
+    dano_fisico: "Daño físico", reparacion_diagnostico: "Reparación / Diagnóstico", consulta: "Consulta",
+    actualizacion_firmware: "Actualización firmware", instalacion_nueva: "Instalación nueva",
     deteccion_incendio: "Detección incendio", control_acceso: "Control de acceso", intrusion_alarma: "Intrusión / alarma", otro: "Otro",
-    configuraciones: "Configuraciones", software: "Software", licencias: "Licencias", firmware: "Actualización firmware",
+    configuracion: "Configuraciones", configuraciones: "Configuraciones",
+    software: "Software", licencias: "Licencias", firmware: "Actualización firmware",
   };
   const tagsNoProblema = new Set(["saliente", "entrante", "urgente", "vip"]);
   const temaAProblema: Record<string, string> = {
-    reset: "Reset contraseña", desvinculacion: "Desvinculación cuenta", configuraciones: "Configuraciones",
-    software: "Software", soporte: "Soporte general", licencias: "Licencias", acceso: "Control de acceso", camara: "Cámaras",
-    nvr: "NVR / Grabador", dvr: "DVR / Grabador", alarma: "Alarma / Intrusión", incendio: "Detección incendio",
-    red: "Conectividad / red", firmware: "Actualización firmware", reparacion_diagnostico: "Reparación / Diagnóstico", consulta: "Consulta", otro: "Otro",
+    reset: "Reset contraseña", resetcontrasena: "Reset contraseña",
+    desvinculacion: "Desvinculación cuenta", desvinculacioncuenta: "Desvinculación cuenta",
+    configuracion: "Configuraciones", configuraciones: "Configuraciones",
+    software: "Software", soporte: "Soporte general", licencias: "Licencias", licencia: "Licencias",
+    acceso: "Control de acceso", controlacceso: "Control de acceso",
+    camara: "Cámaras", camaras: "Cámaras", nvr: "NVR / Grabador", dvr: "DVR / Grabador",
+    alarma: "Alarma / Intrusión", intrusionalarma: "Alarma / Intrusión",
+    incendio: "Detección incendio", deteccionincendio: "Detección incendio",
+    red: "Conectividad / red", conectividadred: "Conectividad / red",
+    firmware: "Actualización firmware", actualizacionfirmware: "Actualización firmware",
+    reparaciondiagnostico: "Reparación / Diagnóstico", reparacion: "Reparación / Diagnóstico", diagnostico: "Reparación / Diagnóstico",
+    consulta: "Consulta", otro: "Otro",
   };
 
-  const deriveProblema = (c: any): string | null => {
-    if (c.problema) return problemasLabels[c.problema] || c.problema;
+  const normKey = (s: unknown): string =>
+    String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+
+  const canonProblema = (raw: unknown): string | null => {
+    const n = normKey(raw);
+    if (!n) return null;
+    if (problemasLabels[n]) return problemasLabels[n];
+    if (tagAProblema[n]) return tagAProblema[n];
+    const compact = n.replace(/[^a-z0-9]/g, "");
+    if (temaAProblema[compact]) return temaAProblema[compact];
+    if (problemasLabels[compact]) return problemasLabels[compact];
+    return null;
+  };
+
+  const inferProblemaPorTexto = (txt: string): string | null => {
+    const t = normKey(txt);
+    if (!t) return null;
+    if (/contrasena|clave|password|\breset\b/.test(t)) return "Reset contraseña";
+    if (/desvincul/.test(t)) return "Desvinculación cuenta";
+    if (/firmware/.test(t)) return "Actualización firmware";
+    if (/licencia/.test(t)) return "Licencias";
+    if (/repara|garant|danad|quemad|taller|diagnos/.test(t)) return "Reparación / Diagnóstico";
+    if (/hikcentral|ivms|smartpss|biotime|configtool|sadp|software/.test(t)) return "Software";
+    if (/\bnvr\b|\bdvr\b|camara|grabador|\bpoe\b|\bip\b|\bred\b|subred|config/.test(t)) return "Configuraciones";
+    return null;
+  };
+
+  const deriveProblema = (c: any): string => {
+    const p1 = canonProblema(c.problema);
+    if (p1) return p1;
+
+    const cl = typeof c.cliente === "object" && c.cliente ? (c.cliente as any) : null;
+    const p2 = canonProblema(cl?.tipo_consulta);
+    if (p2) return p2;
+
+    const p3 = canonProblema(c.cat);
+    if (p3) return p3;
+
     const tags: string[] = Array.isArray(c.tags) ? c.tags : [];
     for (const t of tags) {
-      const tl = String(t).toLowerCase().trim();
+      const tl = normKey(t);
       if (tagsNoProblema.has(tl)) continue;
-      if (tagAProblema[tl]) return tagAProblema[tl];
-      if (problemasLabels[tl]) return problemasLabels[tl];
+      const p4 = canonProblema(t);
+      if (p4) return p4;
     }
+
     const title = String(c.title || "").trim();
-    const tema = title.split("\u2014")[0].trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-    if (tema && temaAProblema[tema]) return temaAProblema[tema];
-    return null;
+    const prefix = title.split(/\u2014|\s-\s/)[0]?.trim() || "";
+    const p5 = canonProblema(prefix);
+    if (p5) return p5;
+
+    const p6 = inferProblemaPorTexto(`${title} ${cl?.descripcion || ""}`);
+    if (p6) return p6;
+
+    return "Consulta";
   };
 
   const problemasMap: Record<string, { label: string; total: number; agentes: Record<string, number> }> = {};
   casosConAsig.forEach(c => {
     const p = deriveProblema(c);
-    if (!p) return;
     const email = getAgenteEmail(c) || "sin_agente";
     if (!problemasMap[p]) problemasMap[p] = { label: p, total: 0, agentes: {} };
     problemasMap[p].total++;
@@ -972,8 +1024,16 @@ export default async function EstadisticasAtencionPage({
   });
   const topProblemas = Object.values(problemasMap)
     .map(p => {
-      const topAgente = Object.entries(p.agentes).sort(([, a], [, b]) => b - a)[0];
-      return { ...p, topAgenteEmail: topAgente?.[0] || "", topAgenteCount: topAgente?.[1] || 0 };
+      const agentesList = Object.entries(p.agentes)
+        .sort(([, a], [, b]) => b - a)
+        .map(([email, count]) => ({ email, count }));
+      const topAgente = agentesList[0];
+      return {
+        ...p,
+        agentesList,
+        topAgenteEmail: topAgente?.email || "",
+        topAgenteCount: topAgente?.count || 0,
+      };
     })
     .sort((a, b) => b.total - a.total)
     .slice(0, 10);
@@ -1493,26 +1553,44 @@ export default async function EstadisticasAtencionPage({
           {/* Problemas por Agente */}
           {topProblemas.length > 0 && (
             <div className="lg:col-span-3 rounded-2xl border border-border bg-card p-6">
-              <div className="flex items-center gap-2 mb-5">
-                <div className="h-7 w-7 rounded-lg bg-emerald-500/10 text-emerald-500 grid place-items-center"><FileText className="h-3.5 w-3.5" /></div>
-                <h3 className="font-black text-sm uppercase tracking-widest text-muted-foreground">Problemas por Agente</h3>
+              <div className="flex items-center justify-between gap-2 mb-5">
+                <div className="flex items-center gap-2">
+                  <div className="h-7 w-7 rounded-lg bg-emerald-500/10 text-emerald-500 grid place-items-center"><FileText className="h-3.5 w-3.5" /></div>
+                  <h3 className="font-black text-sm uppercase tracking-widest text-muted-foreground">Problemas por Agente</h3>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0">
+                  {casosConAsig.length} casos
+                </span>
               </div>
               <div className="space-y-3">
                 {topProblemas.map((p, i) => {
-                  const topAgenteNombre = agenteMap[p.topAgenteEmail] || p.topAgenteEmail.split("@")[0] || "Sin agente";
+                  const pctTotal = casosConAsig.length > 0 ? Math.round((p.total / casosConAsig.length) * 100) : 0;
                   return (
                     <div key={p.label} className="space-y-1.5">
-                      <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-black text-muted-foreground w-4">#{i + 1}</span>
-                          <span className="text-xs font-bold uppercase tracking-wide">{p.label}</span>
+                      <div className="flex justify-between items-center gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-[10px] font-black text-muted-foreground w-4 shrink-0">#{i + 1}</span>
+                          <span className="text-xs font-bold uppercase tracking-wide truncate">{p.label}</span>
                         </div>
-                        <span className="text-xs font-black tabular-nums text-emerald-500">{p.total}</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-[10px] text-muted-foreground">{pctTotal}%</span>
+                          <span className="text-xs font-black tabular-nums text-emerald-500">{p.total}</span>
+                        </div>
                       </div>
                       <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
                         <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${topProblemas[0].total > 0 ? (p.total / topProblemas[0].total) * 100 : 0}%` }} />
                       </div>
-                      <p className="text-[10px] text-muted-foreground">Más atendido por <span className="font-bold text-foreground">{topAgenteNombre}</span> ({p.topAgenteCount})</p>
+                      <p className="text-[10px] text-muted-foreground leading-relaxed">
+                        {p.agentesList.map((ag, idx) => {
+                          const agNombre = agenteMap[ag.email] || ag.email.split("@")[0] || "Sin agente";
+                          return (
+                            <span key={ag.email}>
+                              {idx > 0 && " · "}
+                              <span className={idx === 0 ? "font-bold text-foreground" : "font-medium"}>{agNombre}</span> ({ag.count})
+                            </span>
+                          );
+                        })}
+                      </p>
                     </div>
                   );
                 })}
