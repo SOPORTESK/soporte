@@ -12,6 +12,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
+import { isWorkHoursCR } from "@/lib/utils";
 import type { IntegrityReport, IntegrityCheck } from "@/lib/data-integrity";
 
 export function DataIntegrityBanner() {
@@ -74,8 +75,9 @@ export function DataIntegrityBanner() {
 
   useEffect(() => {
     fetchReport();
-    // Revalidación silenciosa cada 30 minutos (solo si la pestaña está visible)
+    // Revalidación silenciosa cada 30 minutos (solo si la pestaña está visible y en horario laboral)
     const interval = setInterval(() => {
+      if (!isWorkHoursCR()) return;
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       fetchReport();
     }, 30 * 60 * 1000);

@@ -8,6 +8,7 @@ import {
   Circle, Activity, Brain, Zap, ChevronRight,
 } from "lucide-react";
 import Link from "next/link";
+import { isWorkHoursCR } from "@/lib/utils";
 
 type RecentCase = {
   id: string;
@@ -113,8 +114,9 @@ export function LiveDashboardStats({ initial }: { initial: InitialData }) {
     setMounted(true);
     setLastUpdate(new Date());
 
-    // Polling de respaldo cada 300s (Realtime actualiza al instante ante cambios)
+    // Polling de respaldo cada 300s (Realtime actualiza al instante ante cambios; pausado fuera de horario)
     const interval = setInterval(() => {
+      if (!isWorkHoursCR()) return;
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       fetchStats();
     }, 300000);

@@ -147,3 +147,12 @@ export function initials(name: unknown): string {
     .map(part => Array.from(part)[0]?.toUpperCase() ?? "")
     .join("") || "?";
 }
+
+/** Horario laboral Costa Rica (UTC-6): lunes a viernes, 06:15 a 18:00. Usado para pausar polling de respaldo en segundo plano fuera de horario. */
+export function isWorkHoursCR(): boolean {
+  const crNow = new Date(Date.now() - 6 * 3600 * 1000);
+  const dow = crNow.getUTCDay();
+  if (dow === 0 || dow === 6) return false;
+  const mins = crNow.getUTCHours() * 60 + crNow.getUTCMinutes();
+  return mins >= 375 && mins <= 1080;
+}

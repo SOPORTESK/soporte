@@ -8,7 +8,7 @@ import { ConversationList } from "./conversation-list";
 import { ChatView } from "./chat-view";
 import { Inbox as InboxIcon, Crown } from "lucide-react";
 import { toast } from "sonner";
-import { clienteInfo, asText, customerKey } from "@/lib/utils";
+import { clienteInfo, asText, customerKey, isWorkHoursCR } from "@/lib/utils";
 
 /* ── Filtrar casos según el tipo de contenedor ── */
 function filterCasesByContainer(
@@ -1178,11 +1178,15 @@ export function InboxClient({
     };
 
     const soporteTimer = containerType === "soporte-avanzado"
-      ? setInterval(syncSoporteAvanzadoIds, 15000)
+      ? setInterval(() => {
+          if (!isWorkHoursCR()) return;
+          syncSoporteAvanzadoIds();
+        }, 15000)
       : null;
 
-    /* Polling activo de respaldo cada 30s (solo pestaña visible, chequeo de 60 bytes + delta sync) */
+    /* Polling activo de respaldo cada 30s (solo pestaña visible y en horario laboral, chequeo de 60 bytes + delta sync) */
     const poll = setInterval(() => {
+      if (!isWorkHoursCR()) return;
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       doRefetch(false);
     }, 30000);

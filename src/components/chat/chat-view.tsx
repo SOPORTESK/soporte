@@ -18,7 +18,7 @@ import { logActivity } from "@/lib/activity-client";
 import { Avatar, Badge } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { cn, formatTime, formatFullTime, asText, clienteInfo, isInvalidVendorStr } from "@/lib/utils";
+import { cn, formatTime, formatFullTime, asText, clienteInfo, isInvalidVendorStr, isWorkHoursCR } from "@/lib/utils";
 import { toast } from "sonner";
 import { CaseHistoryDrawer } from "./case-history-drawer";
 import { TemplateManager } from "./template-manager";
@@ -1458,8 +1458,9 @@ export function ChatView({
       .subscribe();
     presenceChannelRef.current = presenceCh;
 
-    /* Polling activo de respaldo cada 20s (solo pestaña visible, chequeo liviano de ~80 bytes) */
+    /* Polling activo de respaldo cada 20s (solo pestaña visible y en horario laboral, chequeo liviano de ~80 bytes) */
     const poll = setInterval(() => {
+      if (!isWorkHoursCR()) return;
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       doPoll();
     }, 20000);

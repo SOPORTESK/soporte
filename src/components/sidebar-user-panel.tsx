@@ -8,6 +8,7 @@ import { toCachedMediaUrl } from "@/lib/media-proxy";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activity-client";
+import { isWorkHoursCR } from "@/lib/utils";
 import { computeUnifiedActivityMetrics, formatDurationMs } from "@/lib/activity-engine";
 import { ModalMyActivity } from "@/components/modal-my-activity";
 import { ModalAgenda } from "@/components/modal-agenda";
@@ -1323,6 +1324,7 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
     fetchActivity();
     setLastUpdate(new Date());
     const interval = setInterval(() => {
+      if (!isWorkHoursCR()) return;
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       fetchActivity();
       setLastUpdate(new Date());
@@ -1462,8 +1464,10 @@ function ManualTaskTimerBadge({ start }: { start: number }) {
     const handleUnload = () => navigator.sendBeacon("/api/profile/status", JSON.stringify({ status: "offline", email: agent.email }));
     window.addEventListener("beforeunload", handleUnload);
 
-    // Heartbeat cada 3 minutos preservando el estado real actual
+    // Heartbeat cada 3 minutos preservando el estado real actual (solo en horario laboral y si no está ausente/offline)
     const heartbeat = setInterval(() => {
+      if (!isWorkHoursCR()) return;
+      if (statusRef.current === "away" || statusRef.current === "offline") return;
       fetch("/api/profile/status", { 
         method: "POST", 
         keepalive: true, 

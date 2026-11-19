@@ -608,8 +608,17 @@ async function markCaseQueuedMessageDelivered(job, realMsgId, failed) {
   }
 }
 
+function isWorkHoursCR() {
+  const crNow = new Date(Date.now() - 6 * 3600 * 1000);
+  const dow = crNow.getUTCDay();
+  if (dow === 0 || dow === 6) return false;
+  const mins = crNow.getUTCHours() * 60 + crNow.getUTCMinutes();
+  return mins >= 375 && mins <= 1080;
+}
+
 async function processOutboxQueue(forceRead = false) {
   if (outboxRunning) return;
+  if (!forceRead && !isWorkHoursCR()) return;
   if (Date.now() < nextSupabaseAttemptAt) return;
   outboxRunning = true;
   try {
