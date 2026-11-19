@@ -57,6 +57,7 @@ export async function POST(req: NextRequest) {
       removedDuplicates: number;
       sanitizedInventoryItems: number;
       closedRunawayTimers: number;
+      sanitizedCases: number;
     } | null = null;
     if (action === "sanitize" || action === "fix") {
       sanitizeResult = await autoSanitizeIntegrity();

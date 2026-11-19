@@ -58,6 +58,7 @@ export function DataIntegrityBanner() {
           if (s.closedRunawayTimers > 0) msg.push(`${s.closedRunawayTimers} temporizador(es) desbordado(s) cerrado(s)`);
           if (s.removedDuplicates > 0) msg.push(`${s.removedDuplicates} duplicado(s) eliminado(s)`);
           if (s.sanitizedInventoryItems > 0) msg.push(`${s.sanitizedInventoryItems} artículos de catálogo saneados`);
+          if (s.sanitizedCases > 0) msg.push(`${s.sanitizedCases} caso(s) con fechas/estado corregido(s)`);
           toast.success(msg.length > 0 ? `Auto-saneado: ${msg.join(", ")}.` : "Base de datos saneada. Todos los checks en orden.");
         } else {
           toast.error("No se pudo completar el saneamiento.");

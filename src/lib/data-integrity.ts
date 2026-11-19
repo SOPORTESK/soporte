@@ -1003,6 +1003,7 @@ export async function autoSanitizeIntegrity(): Promise<{
   removedDuplicates: number;
   sanitizedInventoryItems: number;
   closedRunawayTimers: number;
+  sanitizedCases: number;
 }> {
   const sb = createServiceClient();
   const now = new Date();
@@ -1010,6 +1011,7 @@ export async function autoSanitizeIntegrity(): Promise<{
   let removedDuplicates = 0;
   let sanitizedInventoryItems = 0;
   let closedRunawayTimers = 0;
+  let sanitizedCases = 0;
 
   for (const day of days) {
     const all = await getActivityTimeline(undefined, day);
@@ -1089,6 +1091,49 @@ export async function autoSanitizeIntegrity(): Promise<{
     console.error("[autoSanitizeIntegrity] error sanitizing inventory:", err);
   }
 
-  return { removedDuplicates, sanitizedInventoryItems, closedRunawayTimers };
+  // Auto-sanitización de casos con estado inconsistente o fechas invertidas (closed_at/accepted_at < created_at)
+  try {
+    let offset = 0;
+    const ACTIVE_ESTADOS = new Set(["abierto", "escalado", "pendiente", "ia_atendiendo"]);
+    while (true) {
+      const { data: caseRows } = await sb
+        .from("sek_cases")
+        .select("id, estado, created_at, updated_at, closed_at, accepted_at")
+        .neq("canal", "simulator")
+        .neq("es_test", true)
+        .range(offset, offset + 999);
+      if (!caseRows || caseRows.length === 0) break;
+
+      for (const c of caseRows) {
+        const crMs = c.created_at ? new Date(c.created_at).getTime() : NaN;
+        const updMs = c.updated_at ? new Date(c.updated_at).getTime() : NaN;
+        const clMs = c.closed_at ? new Date(c.closed_at).getTime() : NaN;
+        const acMs = c.accepted_at ? new Date(c.accepted_at).getTime() : NaN;
+
+        const patch: Record<string, any> = {};
+        if (Boolean(c.closed_at) && ACTIVE_ESTADOS.has(String(c.estado || ""))) {
+          patch.closed_at = null;
+        } else if (!isNaN(crMs) && !isNaN(clMs) && clMs < crMs - 60000) {
+          patch.closed_at = (!isNaN(updMs) && updMs >= crMs) ? c.updated_at : c.created_at;
+        }
+        if (!isNaN(crMs) && !isNaN(acMs) && acMs < crMs - 60000) {
+          patch.accepted_at = c.created_at;
+        }
+
+        if (Object.keys(patch).length > 0) {
+          const { error: updErr } = await sb.from("sek_cases").update(patch).eq("id", c.id);
+          if (!updErr) sanitizedCases++;
+          else console.error("[autoSanitizeIntegrity] error sanitizing case", c.id, updErr);
+        }
+      }
+
+      if (caseRows.length < 1000) break;
+      offset += 1000;
+    }
+  } catch (err) {
+    console.error("[autoSanitizeIntegrity] error sanitizing cases:", err);
+  }
+
+  return { removedDuplicates, sanitizedInventoryItems, closedRunawayTimers, sanitizedCases };
 }
 
