@@ -95,6 +95,8 @@ export function MediaViewer({
   const [textError, setTextError] = React.useState<string | null>(null);
   const [searchTerm, setSearchTerm] = React.useState("");
   const [copied, setCopied] = React.useState(false);
+  const [copiedSerial, setCopiedSerial] = React.useState(false);
+  const [rawViewMode, setRawViewMode] = React.useState(false);
   const [copiedImage, setCopiedImage] = React.useState(false);
 
   // Reset de transformación cada vez que cambia el archivo activo
@@ -333,10 +335,74 @@ export function MediaViewer({
 
   const transform = `translate(${tx}px, ${ty}px) scale(${scale}) rotate(${rotation}deg)`;
 
+  // Resumen visual de solo lectura para archivos XML/reset Hikvision (sin modificar el archivo original)
+  const docVisualInfo = React.useMemo(() => {
+    if (!textContent) {
+      return { formattedText: "", isFormatted: false, hikSerial: null as string | null, hikModel: null as string | null, isEncryptedBlob: false };
+    }
+    const raw = textContent;
+    const trimmed = raw.trim();
+    const rawLines = raw.split("\n").length;
+
+    let hikSerial: string | null = null;
+    let hikModel: string | null = null;
+    const snTagMatch = raw.match(/<SN>([^<]+)<\/SN>/i) || raw.match(/<DeviceSerial>([^<]+)<\/DeviceSerial>/i);
+    const tailMatch = trimmed.match(/(DS-[A-Z0-9-]{4,}[A-Z0-9]{8,}|(?:[A-Z0-9-]{4,})20\d{2}[01]\d[0-3]\d[A-Z0-9]{4,})$/i);
+    if (snTagMatch?.[1]) {
+      hikSerial = snTagMatch[1].trim();
+    } else if (tailMatch?.[1]) {
+      hikSerial = tailMatch[1].trim();
+    }
+    if (hikSerial) {
+      const mMatch = hikSerial.match(/^(DS-[A-Z0-9-]+?)(?=20\d{2}[01]\d[0-3]\d)/i);
+      if (mMatch?.[1]) hikModel = mMatch[1];
+    }
+
+    const isEncryptedBlob = !trimmed.includes("<") && trimmed.length > 60 && /^[A-Za-z0-9+/=_-]+$/.test(trimmed);
+
+    // Formateo visual para XML minificado en 1 o pocas líneas
+    if (trimmed.startsWith("<") && rawLines <= 3 && /<[a-zA-Z0-9_:-]+[\s>]/.test(trimmed)) {
+      try {
+        const tokens = trimmed.replace(/>\s*</g, ">\n<").split("\n");
+        let indent = 0;
+        const pretty: string[] = [];
+        for (const tok of tokens) {
+          const t = tok.trim();
+          if (!t) continue;
+          if (/^<\//.test(t)) indent = Math.max(0, indent - 1);
+          pretty.push("  ".repeat(indent) + t);
+          if (/^<[^!?/][^>]*[^/]>$/.test(t) && !/<\/[^>]+>$/.test(t)) {
+            indent++;
+          }
+        }
+        return { formattedText: pretty.join("\n"), isFormatted: true, hikSerial, hikModel, isEncryptedBlob };
+      } catch {}
+    }
+
+    // Formateo visual para JSON minificado
+    if ((trimmed.startsWith("{") || trimmed.startsWith("[")) && rawLines <= 3) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return { formattedText: JSON.stringify(parsed, null, 2), isFormatted: true, hikSerial, hikModel, isEncryptedBlob };
+      } catch {}
+    }
+
+    // Formateo visual para blob cifrado Hikvision de 1 sola línea (partir visualmente en bloques legibles de 76 chars)
+    if (isEncryptedBlob && rawLines === 1) {
+      const bodyPart = hikSerial && trimmed.endsWith(hikSerial) ? trimmed.slice(0, -hikSerial.length) : trimmed;
+      const chunks = bodyPart.match(/.{1,76}/g) || [bodyPart];
+      const visualLines = hikSerial ? [...chunks, "", `Equipo / Serie: ${hikSerial}`] : chunks;
+      return { formattedText: visualLines.join("\n"), isFormatted: true, hikSerial, hikModel, isEncryptedBlob };
+    }
+
+    return { formattedText: raw, isFormatted: false, hikSerial, hikModel, isEncryptedBlob };
+  }, [textContent]);
+
   // Líneas de texto con filtro de búsqueda
   const filteredLines = React.useMemo(() => {
     if (!textContent) return [];
-    const lines = textContent.split("\n");
+    const activeText = !rawViewMode && docVisualInfo.isFormatted ? docVisualInfo.formattedText : textContent;
+    const lines = activeText.split("\n");
     if (!searchTerm.trim()) return lines.map((l, i) => ({ num: i + 1, text: l, match: false }));
     const term = searchTerm.toLowerCase();
     return lines.map((l, i) => ({
@@ -344,7 +410,7 @@ export function MediaViewer({
       text: l,
       match: l.toLowerCase().includes(term),
     }));
-  }, [textContent, searchTerm]);
+  }, [textContent, rawViewMode, docVisualInfo, searchTerm]);
 
   // Formato de fecha del mensaje activo
   const formattedTime = React.useMemo(() => {
@@ -590,15 +656,54 @@ export function MediaViewer({
                   className="bg-neutral-800/80 border border-white/10 rounded-md px-2.5 py-1 text-white text-xs placeholder:text-white/30 focus:outline-none focus:border-amber-500 w-full"
                 />
               </div>
-              <div className="flex items-center gap-3 text-white/50 text-[11px]">
+              <div className="flex items-center gap-2.5 text-white/50 text-[11px] flex-wrap">
                 {searchTerm && (
                   <span className="text-amber-400 font-semibold">
                     {filteredLines.filter((l) => l.match).length} coincidencia(s)
                   </span>
                 )}
+                {docVisualInfo.isFormatted && (
+                  <button
+                    type="button"
+                    onClick={() => setRawViewMode((v) => !v)}
+                    className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/80 font-medium transition-colors"
+                    title="Alternar entre vista legible y texto original exacto (el archivo descargable nunca se modifica)"
+                  >
+                    {rawViewMode ? "Ver vista legible" : "Ver original crudo"}
+                  </button>
+                )}
                 <span>{filteredLines.length} líneas</span>
               </div>
             </div>
+
+            {(docVisualInfo.hikSerial || docVisualInfo.isFormatted) && !loadingText && !textError && (
+              <div className="flex items-center justify-between gap-3 px-4 py-2 bg-emerald-950/40 border-b border-emerald-500/20 text-xs flex-wrap">
+                <div className="flex items-center gap-3 flex-wrap text-emerald-200/90">
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold uppercase tracking-wide">
+                    Solo lectura · Original intacto
+                  </span>
+                  {docVisualInfo.hikModel && (
+                    <span>Modelo: <strong className="text-white font-mono">{docVisualInfo.hikModel}</strong></span>
+                  )}
+                  {docVisualInfo.hikSerial && (
+                    <span>Serie: <strong className="text-white font-mono select-all">{docVisualInfo.hikSerial}</strong></span>
+                  )}
+                </div>
+                {docVisualInfo.hikSerial && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(docVisualInfo.hikSerial!);
+                      setCopiedSerial(true);
+                      setTimeout(() => setCopiedSerial(false), 2000);
+                    }}
+                    className="px-2.5 py-1 rounded bg-emerald-600/80 hover:bg-emerald-600 text-white text-[11px] font-semibold transition-colors shrink-0"
+                  >
+                    {copiedSerial ? "Serie copiada" : "Copiar serie"}
+                  </button>
+                )}
+              </div>
+            )}
 
             <div className="flex-1 overflow-auto p-4 font-mono text-xs leading-relaxed select-text bg-neutral-950">
               {loadingText ? (
