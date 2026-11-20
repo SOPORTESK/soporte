@@ -312,15 +312,15 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
       }
     }
 
-    // 2. Respaldo con OpenRouter Vision (priorizar modelos :free activos antes que pagos)
+    // 2. Respaldo con OpenRouter Vision (priorizar modelos :free activos + autodescubrimiento si cambian IDs)
     if (isImage && openrouterKey && buf.byteLength <= 8 * 1024 * 1024) {
-      const orModels = [
+      const staticOrModels = [
         "nvidia/nemotron-3.5-super-vl:free",
         "inclusionai/ling-3.2-flash:free",
         "google/gemma-4-31b-it:free",
         "qwen/qwen2.5-vl-72b-instruct",
       ];
-      for (const orModel of orModels) {
+      const tryOpenRouterModel = async (orModel: string): Promise<string | null> => {
         try {
           const orRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
             method: "POST",
@@ -358,6 +358,35 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
         } catch (e: any) {
           console.warn(`[vision] Excepción OpenRouter ${orModel}:`, e?.message);
         }
+        return null;
+      };
+
+      for (const orModel of staticOrModels) {
+        const res = await tryOpenRouterModel(orModel);
+        if (res) return res;
+      }
+
+      // Autodescubrimiento dinámico de cualquier modelo :free con soporte de imagen en OpenRouter
+      try {
+        const mRes = await fetch("https://openrouter.ai/api/v1/models", { signal: AbortSignal.timeout(6000) });
+        if (mRes.ok) {
+          const mJson = await mRes.json();
+          const discovered = (Array.isArray(mJson?.data) ? mJson.data : [])
+            .filter((m: any) =>
+              typeof m?.id === "string" &&
+              m.id.includes(":free") &&
+              !staticOrModels.includes(m.id) &&
+              (m.architecture?.input_modalities?.includes("image") || String(m.architecture?.modality || "").includes("image"))
+            )
+            .map((m: any) => m.id)
+            .slice(0, 4);
+          for (const dModel of discovered) {
+            const res = await tryOpenRouterModel(dModel);
+            if (res) return res;
+          }
+        }
+      } catch {
+        // Ignorar fallo de autodescubrimiento
       }
     }
 

@@ -1178,8 +1178,8 @@ export async function POST(req: NextRequest) {
             line += `\n   -> ANÁLISIS TÉCNICO DEL ADJUNTO:\n${condensed}`;
             substantiveParts.push(compactVisionText(m._visionAnalysis, 420));
           } else {
-            line += `\n   -> [Archivo/foto de evidencia adjunta por el cliente: ${m.fileName || kind}]`;
-            substantiveParts.push(`Evidencia adjunta por el cliente: ${m.fileName || kind}`);
+            line += `\n   -> [ATENCIÓN: No se pudo extraer el análisis visual de este adjunto (${m.fileName || kind}). NO asumas ni inventes su contenido; indícale al técnico si necesitas que te describa lo que muestra la captura.]`;
+            substantiveParts.push(`Evidencia adjunta sin análisis visual disponible: ${m.fileName || kind}`);
           }
           mediaTranscriptLines.push(line);
         }
