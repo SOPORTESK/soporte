@@ -1046,7 +1046,7 @@ export async function POST(req: NextRequest) {
         // Priorizar adjuntos pendientes de transcripción o análisis
         const pendingAttachments = attachments
           .filter((m: any) => !m.transcription && (!m._visionAnalysis || m._visionAnalysis.includes("[ANÁLISIS DE ADJUNTO NO DISPONIBLE")))
-          .slice(-3);
+          .slice(-8);
 
         await Promise.allSettled(
           pendingAttachments.map(async (att) => {
@@ -1064,7 +1064,7 @@ export async function POST(req: NextRequest) {
               } else {
                 const result = await Promise.race([
                   analyzeMedia(att.mediaUrl, att.mediaType, att.content || "", att.fileName || ""),
-                  new Promise<null>((r) => setTimeout(() => r(null), 30000)),
+                  new Promise<null>((r) => setTimeout(() => r(null), 40000)),
                 ]);
                 if (result) {
                   const patch = (m: any) => (m.mediaUrl === att.mediaUrl ? { ...m, _visionAnalysis: result } : m);

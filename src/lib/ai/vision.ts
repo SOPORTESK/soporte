@@ -187,7 +187,7 @@ export async function analyzeMedia(
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
     let googleKey = process.env.GEMINI_API_KEY || "";
     let openrouterKey = process.env.OPENROUTER_API_KEY || "";
-    let groqKey = process.env.GROQ_API_KEY || "";
+    let nvidiaKey = process.env.NVIDIA_API_KEY || "";
 
     if (supabaseUrl && serviceKey) {
       try {
@@ -195,12 +195,12 @@ export async function analyzeMedia(
         const { data: provs } = await supabase
           .from("sek_ai_providers")
           .select("id, api_key")
-          .in("id", ["google", "openrouter", "groq"]);
+          .in("id", ["google", "openrouter", "nvidia"]);
         if (provs) {
           for (const p of provs) {
             if (p.id === "google" && p.api_key) googleKey = p.api_key;
             if (p.id === "openrouter" && p.api_key) openrouterKey = p.api_key;
-            if (p.id === "groq" && p.api_key) groqKey = p.api_key;
+            if (p.id === "nvidia" && p.api_key) nvidiaKey = p.api_key;
           }
         }
       } catch {
@@ -208,7 +208,7 @@ export async function analyzeMedia(
       }
     }
 
-    if (!googleKey && !openrouterKey && !groqKey) {
+    if (!googleKey && !openrouterKey && !nvidiaKey) {
       console.warn("[vision] No se encontró ninguna API key disponible para análisis visual");
       return null;
     }
@@ -268,9 +268,9 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
     }
     const base64Data = buf.toString("base64");
 
-    // 1. Intentar con Google Gemini directo (solo gemini-3-flash-preview; si devuelve 429/timeout, pasar rápido a OpenRouter)
+    // 1. Intentar con Google Gemini directo (modelos activos con cuota disponible)
     if (googleKey) {
-      const candidateModels = ["gemini-3-flash-preview"];
+      const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-3-flash-preview"];
       for (const m of candidateModels) {
         try {
           const gRes = await fetch(
@@ -285,9 +285,9 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
                     { inline_data: { mime_type: mimeType, data: base64Data } }
                   ]
                 }],
-                generationConfig: { maxOutputTokens: 4096, temperature: 0.1 }
+                generationConfig: { maxOutputTokens: 2048, temperature: 0.1 }
               }),
-              signal: AbortSignal.timeout(9000),
+              signal: AbortSignal.timeout(15000),
             }
           );
           if (gRes.ok) {
@@ -312,9 +312,14 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
       }
     }
 
-    // 2. Respaldo con OpenRouter Vision (modelos multimodales activos y verificados)
+    // 2. Respaldo con OpenRouter Vision (priorizar modelos :free activos antes que pagos)
     if (isImage && openrouterKey && buf.byteLength <= 8 * 1024 * 1024) {
-      const orModels = ["google/gemini-2.5-flash", "qwen/qwen2.5-vl-72b-instruct"];
+      const orModels = [
+        "nvidia/nemotron-3.5-super-vl:free",
+        "inclusionai/ling-3.2-flash:free",
+        "google/gemma-4-31b-it:free",
+        "qwen/qwen2.5-vl-72b-instruct",
+      ];
       for (const orModel of orModels) {
         try {
           const orRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -335,9 +340,9 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
                 },
               ],
               temperature: 0.1,
-              max_tokens: 2048,
+              max_tokens: 1024,
             }),
-            signal: AbortSignal.timeout(12000),
+            signal: AbortSignal.timeout(15000),
           });
           if (orRes.ok) {
             const data = await orRes.json();
@@ -356,47 +361,44 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
       }
     }
 
-    // 3. Fallback con Groq Vision (Llama 4 Scout) para imágenes cuando Gemini/OpenRouter están sin cuota
-    if (groqKey && mimeType.startsWith("image/")) {
-      const groqModels = ["meta-llama/llama-4-scout-17b-16e-instruct", "meta-llama/llama-4-maverick-17b-128e-instruct"];
-      for (const gModel of groqModels) {
-        try {
-          const gRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${groqKey}`,
-            },
-            body: JSON.stringify({
-              model: gModel,
-              messages: [
-                {
-                  role: "user",
-                  content: [
-                    { type: "text", text: prompt },
-                    { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } },
-                  ],
-                },
-              ],
-              temperature: 0.1,
-              max_tokens: 1500,
-            }),
-            signal: AbortSignal.timeout(12000),
-          });
-          if (gRes.ok) {
-            const data = await gRes.json();
-            const text = data.choices?.[0]?.message?.content?.trim();
-            if (text) {
-              console.log(`[vision] Análisis exitoso con Groq ${gModel} (${(buf.byteLength / 1024).toFixed(1)} KB)`);
-              return text;
-            }
-          } else {
-            const errTxt = await gRes.text().catch(() => "");
-            console.warn(`[vision] Groq ${gModel} error:`, gRes.status, errTxt.substring(0, 120));
+    // 3. Respaldo directo con NVIDIA NIM Vision
+    if (isImage && nvidiaKey && buf.byteLength <= 8 * 1024 * 1024) {
+      try {
+        const nvRes = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${nvidiaKey}`,
+          },
+          body: JSON.stringify({
+            model: "nvidia/nemotron-3.5-super-vl-120b-a12b",
+            messages: [
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: prompt },
+                  { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } },
+                ],
+              },
+            ],
+            temperature: 0.1,
+            max_tokens: 1024,
+          }),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (nvRes.ok) {
+          const data = await nvRes.json();
+          const text = data.choices?.[0]?.message?.content?.trim();
+          if (text) {
+            console.log(`[vision] Análisis exitoso con NVIDIA NIM (${(buf.byteLength / 1024).toFixed(1)} KB)`);
+            return text;
           }
-        } catch (e: any) {
-          console.warn(`[vision] Excepción Groq ${gModel}:`, e?.message);
+        } else {
+          const errTxt = await nvRes.text().catch(() => "");
+          console.warn("[vision] NVIDIA NIM error:", nvRes.status, errTxt.substring(0, 120));
         }
+      } catch (e: any) {
+        console.warn("[vision] Excepción NVIDIA NIM:", e?.message);
       }
     }
     return null;
