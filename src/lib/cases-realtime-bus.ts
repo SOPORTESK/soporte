@@ -66,7 +66,19 @@ let agentsTeardownTimer: ReturnType<typeof setTimeout> | null = null;
 let agentsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 let windowRecoveryAttached = false;
+let healthCheckTimer: ReturnType<typeof setInterval> | null = null;
 const DEAD_STATUSES = new Set(["CLOSED", "CHANNEL_ERROR", "TIMED_OUT"]);
+
+function isChannelHealthy(channel: any, client: SupabaseClient | null, lastStatus: string): boolean {
+  if (!channel || !client) return false;
+  if (DEAD_STATUSES.has(lastStatus) || lastStatus !== "SUBSCRIBED") return false;
+  const rtConnected = typeof (client as any)?.realtime?.isConnected === "function"
+    ? (client as any).realtime.isConnected()
+    : true;
+  if (!rtConnected) return false;
+  if (channel.state && channel.state !== "joined") return false;
+  return true;
+}
 
 function attachWindowRecovery() {
   if (windowRecoveryAttached || typeof window === "undefined") return;
@@ -74,16 +86,21 @@ function attachWindowRecovery() {
 
   const recoverIfNeeded = () => {
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-    if (caseListeners.size > 0 && casesClientRef && casesLastStatus !== "SUBSCRIBED") {
+    if (caseListeners.size > 0 && casesClientRef && !isChannelHealthy(casesChannel, casesClientRef, casesLastStatus)) {
       ensureCasesChannel(casesClientRef, true);
     }
-    if (agentListeners.size > 0 && agentsClientRef && agentsLastStatus !== "SUBSCRIBED") {
+    if (agentListeners.size > 0 && agentsClientRef && !isChannelHealthy(agentsChannel, agentsClientRef, agentsLastStatus)) {
       ensureAgentsChannel(agentsClientRef, true);
     }
   };
 
   window.addEventListener("online", recoverIfNeeded);
+  window.addEventListener("focus", recoverIfNeeded);
   document.addEventListener("visibilitychange", recoverIfNeeded);
+
+  if (!healthCheckTimer) {
+    healthCheckTimer = setInterval(recoverIfNeeded, 15000);
+  }
 }
 
 function scheduleCasesReconnect() {
@@ -135,7 +152,13 @@ function ensureCasesChannel(supabase: SupabaseClient, forceReconnect = false) {
     })
     .subscribe((status: string) => {
       if (casesChannel !== createdChannel) return;
+      const prevStatus = casesLastStatus;
       casesLastStatus = status;
+      if (status === "SUBSCRIBED" && prevStatus && prevStatus !== "SUBSCRIBED" && typeof window !== "undefined") {
+        try {
+          window.dispatchEvent(new CustomEvent("cases_realtime_reconnected"));
+        } catch {}
+      }
       caseStatusListeners.forEach((cb) => {
         try {
           cb(status);

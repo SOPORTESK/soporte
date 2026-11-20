@@ -1171,13 +1171,21 @@ export function ChatView({
                 return;
               }
               if (!prevHash && historyLoadedRef.current) {
-                // El historial ya fue cargado al abrir el chat: registrar hash inicial sin volver a descargar todo
+                const curLastMsg = String(sekCaseRef.current?.last_message_at || "");
+                const curUpdated = String((sekCaseRef.current as any)?.updated_at || "");
+                const hasNewerOnServer = meta.some((m: any) =>
+                  (m.last_message_at && String(m.last_message_at) > curLastMsg) ||
+                  (m.updated_at && curUpdated && String(m.updated_at) > curUpdated)
+                );
                 lastGroupMetaHash = metaHash;
                 (sekCaseRef.current as any)._groupMetaHash = metaHash;
-                return;
+                if (!hasNewerOnServer) {
+                  return;
+                }
+              } else {
+                lastGroupMetaHash = metaHash;
+                (sekCaseRef.current as any)._groupMetaHash = metaHash;
               }
-              lastGroupMetaHash = metaHash;
-              (sekCaseRef.current as any)._groupMetaHash = metaHash;
             }
           }
 
@@ -1317,7 +1325,25 @@ export function ChatView({
           ...((sekCaseRef.current._group?.caseIds || []).map(String)),
         ]);
         const rowId = String(payload.caseId || (payload.new as any)?.id || (payload.old as any)?.id || "");
-        if (!rowId || !groupIds.has(rowId)) return;
+        if (!rowId) return;
+        if (!groupIds.has(rowId)) {
+          if (payload.eventType === "INSERT") {
+            const newPhone = String((payload.new as any)?.customer_phone || (payload.new as any)?.cliente?.telefono || "").replace(/[^0-9]/g, "");
+            const curCase = sekCaseRef.current as any;
+            const ownPhone = String(curCase?.customer_phone || curCase?.cliente?.telefono || "").replace(/[^0-9]/g, "");
+            const sameCustomer = Boolean(
+              newPhone && ownPhone &&
+              (newPhone === ownPhone || (newPhone.length >= 8 && ownPhone.endsWith(newPhone.slice(-8))) || (ownPhone.length >= 8 && newPhone.endsWith(ownPhone.slice(-8))))
+            );
+            if (sameCustomer) {
+              if (sekCaseRef.current?._group?.caseIds && !sekCaseRef.current._group.caseIds.some((id: any) => String(id) === rowId)) {
+                sekCaseRef.current._group.caseIds = [...sekCaseRef.current._group.caseIds, rowId];
+              }
+              doPoll(true);
+            }
+          }
+          return;
+        }
 
         const newData = (payload.new || {}) as any;
         const prevCase = sekCaseRef.current;
@@ -1471,8 +1497,12 @@ export function ChatView({
         doPoll(false);
       }
     };
+    const handleReconnected = () => {
+      doPoll(false);
+    };
     document.addEventListener("visibilitychange", handleVisibility);
     window.addEventListener("focus", handleVisibility);
+    window.addEventListener("cases_realtime_reconnected", handleReconnected);
 
     // Marcar mensajes del cliente como leídos al abrir el chat SOLO si hay mensajes no leídos
     const hasUnreadInitial =
@@ -1493,6 +1523,7 @@ export function ChatView({
       clearInterval(poll);
       document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("focus", handleVisibility);
+      window.removeEventListener("cases_realtime_reconnected", handleReconnected);
       unsubscribeCaseBus();
       supabase.removeChannel(presenceCh);
     };

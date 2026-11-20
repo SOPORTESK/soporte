@@ -723,9 +723,6 @@ export function InboxClient({
                 const ins = ev.new as SekCase;
                 const insId = String(ev.caseId || ins?.id || "");
                 if (ins && ins.canal !== "simulator" && !(ins as any).es_test) {
-                  if (ins.updated_at && ins.updated_at > lastKnownMaxUpdatedAtRef.current) {
-                    lastKnownMaxUpdatedAtRef.current = ins.updated_at;
-                  }
                   if (ins.id) {
                     nextAll = [ins, ...nextAll.filter(c => String(c.id) !== String(ins.id))];
                   }
@@ -739,9 +736,6 @@ export function InboxClient({
                 const upd = (ev.new || {}) as SekCase;
                 const targetCid = String(ev.caseId || upd.id || "");
                 if (targetCid && upd.canal !== "simulator" && !(upd as any).es_test) {
-                  if (upd.updated_at && upd.updated_at > lastKnownMaxUpdatedAtRef.current) {
-                    lastKnownMaxUpdatedAtRef.current = upd.updated_at;
-                  }
                   if (ev.action === "refresh_history") {
                     // refresh_history llega sin campos escalares nuevos; recargar metadata de ese caso
                     missingFetchIds.add(targetCid);
@@ -1202,6 +1196,11 @@ export function InboxClient({
         doRefetch(false);
       }
     };
+    const handleRealtimeReconnected = () => {
+      if (containerType === "soporte-avanzado") syncSoporteAvanzadoIds();
+      doRefetch(false);
+    };
+    window.addEventListener("cases_realtime_reconnected", handleRealtimeReconnected);
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibility);
 
@@ -1247,6 +1246,7 @@ export function InboxClient({
       clearInterval(poll);
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("cases_realtime_reconnected", handleRealtimeReconnected);
       window.removeEventListener("sek-case-updated", handleCaseUpdated);
       window.removeEventListener("sek-open-case", handleDirectOpenCase);
       try {
