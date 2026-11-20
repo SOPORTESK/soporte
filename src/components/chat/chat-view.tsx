@@ -500,7 +500,8 @@ export function ChatView({
     if (target) {
       scrollToMessage(target);
     } else {
-      toast.info("El mensaje citado no se encuentra en este historial");
+      setHistoryQuote({ messageId: rep.messageId, content: rep.content });
+      setShowHistory(true);
     }
   };
 
@@ -613,6 +614,7 @@ export function ChatView({
   const videoTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const [showActions, setShowActions] = React.useState(false);
   const [showHistory, setShowHistory] = React.useState(false);
+  const [historyQuote, setHistoryQuote] = React.useState<{ messageId?: string; content?: string } | null>(null);
   const [clienteTyping, setClienteTyping] = React.useState(false);
   const [clienteTypingMode, setClienteTypingMode] = React.useState<"composing" | "recording">("composing");
   const waTypingTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -4717,8 +4719,12 @@ export function ChatView({
       {/* Drawer de historial */}
       <CaseHistoryDrawer
         isOpen={showHistory}
-        onClose={() => setShowHistory(false)}
+        onClose={() => {
+          setShowHistory(false);
+          setHistoryQuote(null);
+        }}
         currentCase={sekCase}
+        highlightQuote={historyQuote}
       />
 
       {/* Visor de medios interactivo de primer nivel (Galería con miniaturas y navegación) */}

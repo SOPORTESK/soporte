@@ -11,6 +11,7 @@ interface CaseHistoryDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   currentCase: SekCase;
+  highlightQuote?: { messageId?: string; content?: string } | null;
 }
 
 interface CaseWithDetails extends SekCase {
@@ -21,7 +22,7 @@ interface CaseWithDetails extends SekCase {
 
 const CASE_HISTORY_META_FIELDS = "id, title, estado, created_at, cliente, customer_phone, canal";
 
-export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryDrawerProps) {
+export function CaseHistoryDrawer({ isOpen, onClose, currentCase, highlightQuote }: CaseHistoryDrawerProps) {
   const supabase = React.useMemo(() => createClient(), []);
   const [cases, setCases] = React.useState<CaseWithDetails[]>([]);
   const [loading, setLoading] = React.useState(false);
@@ -91,6 +92,86 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
     loadCases(false);
   }, [isOpen, currentCase.id, loadCases]);
 
+  const lastSearchedQuoteRef = React.useRef<string>("");
+  React.useEffect(() => {
+    if (!isOpen || !highlightQuote || loading || cases.length === 0) return;
+    const quoteSig = `${highlightQuote.messageId || ""}|${highlightQuote.content || ""}`;
+    if (!quoteSig || lastSearchedQuoteRef.current === quoteSig) return;
+    lastSearchedQuoteRef.current = quoteSig;
+
+    const matchesEntry = (e: any) => {
+      if (!e) return false;
+      if (highlightQuote.messageId && e.messageId === highlightQuote.messageId) return true;
+      if (highlightQuote.content) {
+        const needle = highlightQuote.content.trim().toLowerCase();
+        const txt = String(e.content || "").trim().toLowerCase();
+        const fn = String(e.fileName || "").trim().toLowerCase();
+        if (txt && (txt === needle || txt.includes(needle) || needle.includes(txt))) return true;
+        if (fn && (fn === needle || fn.includes(needle))) return true;
+      }
+      return false;
+    };
+
+    const locateAndScroll = async () => {
+      let working = cases;
+      const unloadedIds = working.filter(c => !c._histLoaded).map(c => c.id);
+      if (unloadedIds.length > 0) {
+        const { data } = await supabase
+          .from("sek_cases")
+          .select("id, histcliente, histtecnico")
+          .in("id", unloadedIds);
+        if (Array.isArray(data) && data.length > 0) {
+          const byId = new Map(data.map((d: any) => [String(d.id), d]));
+          working = working.map(c => {
+            const found = byId.get(String(c.id));
+            if (!found) return c;
+            return {
+              ...c,
+              histcliente: Array.isArray(found.histcliente) ? found.histcliente : [],
+              histtecnico: Array.isArray(found.histtecnico) ? found.histtecnico : [],
+              _histLoaded: true,
+            };
+          });
+        }
+      }
+
+      let matchedCaseId: string | null = null;
+      let matchedMsgIdx = -1;
+      for (const c of working) {
+        const combined: any[] = [
+          ...(c.histcliente || []).map(e => ({ ...e, _isCliente: true })),
+          ...(c.histtecnico || []).map(e => ({ ...e, _isCliente: false })),
+        ].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+        const idx = combined.findIndex(matchesEntry);
+        if (idx >= 0) {
+          matchedCaseId = String(c.id);
+          matchedMsgIdx = idx;
+          break;
+        }
+      }
+
+      if (matchedCaseId) {
+        setCases(working.map(c => String(c.id) === matchedCaseId ? { ...c, _expanded: true } : c));
+        setTimeout(() => {
+          const el = document.getElementById(`hist-msg-${matchedCaseId}-${matchedMsgIdx}`);
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+            el.classList.add("ring-4", "ring-amber-400", "rounded-lg");
+            setTimeout(() => el.classList.remove("ring-4", "ring-amber-400", "rounded-lg"), 2200);
+          }
+        }, 120);
+      } else {
+        setCases(working);
+      }
+    };
+
+    locateAndScroll().catch(() => {});
+  }, [isOpen, highlightQuote, loading, cases, supabase]);
+
+  React.useEffect(() => {
+    if (!isOpen) lastSearchedQuoteRef.current = "";
+  }, [isOpen]);
+
   async function toggleExpand(caseId: string | number) {
     const idStr = String(caseId);
     const target = cases.find(c => String(c.id) === idStr);
@@ -132,7 +213,7 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
     }
   }
 
-  function renderMessage(e: SekHistEntry, idx: number, isCliente: boolean) {
+  function renderMessage(e: SekHistEntry, idx: number, isCliente: boolean, caseId?: string | number) {
     const isNota = e.role === "nota";
     const isSeparator = (e as any)._separator;
     
@@ -149,8 +230,9 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
     return (
       <div
         key={idx}
+        id={caseId !== undefined ? `hist-msg-${caseId}-${idx}` : undefined}
         className={cn(
-          "flex mb-2",
+          "flex mb-2 transition-all",
           isCliente ? "justify-start" : "justify-end"
         )}
       >
@@ -331,7 +413,7 @@ export function CaseHistoryDrawer({ isOpen, onClose, currentCase }: CaseHistoryD
                           );
                         }
 
-                        return allMsgs.map((e, idx) => renderMessage(e, idx, e._isCliente));
+                        return allMsgs.map((e, idx) => renderMessage(e, idx, e._isCliente, c.id));
                       })()}
                     </div>
 
