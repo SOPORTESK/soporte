@@ -268,9 +268,9 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
     }
     const base64Data = buf.toString("base64");
 
-    // 1. Intentar con modelos de Google Gemini (priorizar 3.5-flash-lite rápido sin thinking)
+    // 1. Intentar con modelos de Google Gemini (priorizar gemini-3-flash-preview que responde en ~3s)
     if (googleKey) {
-      const candidateModels = ["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.5-flash", "gemini-flash-latest"];
+      const candidateModels = ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-flash-latest"];
       for (const m of candidateModels) {
         try {
           const gRes = await fetch(
@@ -287,7 +287,7 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
                 }],
                 generationConfig: { maxOutputTokens: 4096, temperature: 0.1 }
               }),
-              signal: AbortSignal.timeout(10000),
+              signal: AbortSignal.timeout(m === "gemini-3-flash-preview" ? 15000 : 9000),
             }
           );
           if (gRes.ok) {

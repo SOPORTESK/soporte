@@ -22,6 +22,7 @@ import {
 } from "@/lib/tech-assistant-agent";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 interface TechMessage {
   role: "user" | "assistant";
