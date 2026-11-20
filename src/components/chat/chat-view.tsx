@@ -476,6 +476,34 @@ export function ChatView({
     }
   };
 
+  const scrollToQuoted = (sourceMsg: UnifiedMessage) => {
+    const rep = sourceMsg.replyTo;
+    if (!rep) return;
+    let target: UnifiedMessage | undefined;
+    if (rep.messageId) {
+      target = messages.find((x) => x.messageId && x.messageId === rep.messageId);
+    }
+    if (!target && rep.content) {
+      const needle = rep.content.trim().toLowerCase();
+      const idx = messages.findIndex((x) => x.id === sourceMsg.id);
+      const limit = idx > 0 ? idx : messages.length;
+      for (let i = limit - 1; i >= 0; i--) {
+        const cand = messages[i];
+        const cText = (cand.content || "").trim().toLowerCase();
+        const fName = (cand.fileName || "").trim().toLowerCase();
+        if ((cText && (cText === needle || cText.includes(needle) || needle.includes(cText))) || (fName && (fName === needle || fName.includes(needle)))) {
+          target = cand;
+          break;
+        }
+      }
+    }
+    if (target) {
+      scrollToMessage(target);
+    } else {
+      toast.info("El mensaje citado no se encuentra en este historial");
+    }
+  };
+
   const handleUnpinFromBanner = async (m: UnifiedMessage) => {
     if (!targetId || !m.historyType || m.originalIndex === undefined) return;
     try {
@@ -4124,6 +4152,7 @@ export function ChatView({
                   onMessageUpdate={handleMessageUpdate}
                   fallbackCaseId={targetId}
                   onRetrySend={retrySend}
+                  onJumpToQuoted={scrollToQuoted}
                   onReply={(msg) => { setReplyTo(msg); setMode("reply"); setTimeout(() => { const ta = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mensaje"]'); if (ta) ta.focus(); }, 50); }}
                 />
               </div>
@@ -5198,7 +5227,7 @@ function MediaPreview({ url, type, name, onImageClick, onHikvisionInspect }: {
   );
 }
 
-function Bubble({ m, prev, next, clienteName, onImageClick, onHikvisionInspect, agentEmail, onMessageUpdate, onReply, fallbackCaseId, onRetrySend }: {
+function Bubble({ m, prev, next, clienteName, onImageClick, onHikvisionInspect, agentEmail, onMessageUpdate, onReply, onJumpToQuoted, fallbackCaseId, onRetrySend }: {
   m: UnifiedMessage;
   prev?: UnifiedMessage;
   next?: UnifiedMessage;
@@ -5208,6 +5237,7 @@ function Bubble({ m, prev, next, clienteName, onImageClick, onHikvisionInspect, 
   agentEmail: string | null;
   onMessageUpdate?: (historyType: "histcliente" | "histtecnico", originalIndex: number, fieldsToUpdate: any) => void;
   onReply?: (m: UnifiedMessage) => void;
+  onJumpToQuoted?: (m: UnifiedMessage) => void;
   fallbackCaseId?: string | number;
   onRetrySend?: (m: UnifiedMessage) => void;
 }) {
@@ -5618,17 +5648,25 @@ function Bubble({ m, prev, next, clienteName, onImageClick, onHikvisionInspect, 
         
         {/* Cita (reply-to) */}
         {m.replyTo && (
-          <div className={cn(
-            "mb-1.5 px-2 py-1 rounded-lg border-l-2 text-xs",
-            isCliente ? "bg-muted/50 border-muted-foreground/40" : "bg-white/10 border-white/40"
-          )}>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onJumpToQuoted?.(m);
+            }}
+            title="Ir al mensaje citado"
+            className={cn(
+              "mb-1.5 px-2 py-1 rounded-lg border-l-2 text-xs text-left w-full cursor-pointer transition-colors",
+              isCliente ? "bg-muted/50 hover:bg-muted/80 border-muted-foreground/40" : "bg-white/10 hover:bg-white/20 border-white/40"
+            )}
+          >
             <p className={cn("font-semibold text-[10px]", isCliente ? "text-muted-foreground" : "text-white/70")}>
               {m.replyTo.author}
             </p>
             <p className={cn("truncate", isCliente ? "text-muted-foreground" : "text-white/60")}>
               {m.replyTo.content}
             </p>
-          </div>
+          </button>
         )}
         
         {/* Contenido con detección de [SUGERENCIAS] o edición inline */}
