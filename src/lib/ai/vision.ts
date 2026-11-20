@@ -268,9 +268,9 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
     }
     const base64Data = buf.toString("base64");
 
-    // 1. Intentar con modelos de Google Gemini (priorizar gemini-3-flash-preview que responde en ~3s)
+    // 1. Intentar con Google Gemini directo (solo gemini-3-flash-preview; si devuelve 429/timeout, pasar rápido a OpenRouter)
     if (googleKey) {
-      const candidateModels = ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-flash-latest"];
+      const candidateModels = ["gemini-3-flash-preview"];
       for (const m of candidateModels) {
         try {
           const gRes = await fetch(
@@ -287,7 +287,7 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
                 }],
                 generationConfig: { maxOutputTokens: 4096, temperature: 0.1 }
               }),
-              signal: AbortSignal.timeout(m === "gemini-3-flash-preview" ? 15000 : 9000),
+              signal: AbortSignal.timeout(9000),
             }
           );
           if (gRes.ok) {
