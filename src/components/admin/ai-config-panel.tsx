@@ -54,6 +54,7 @@ const P: Record<string, { grad: string; accent: string; soft: string; text: stri
   openrouter: { grad: "from-sky-500 to-blue-600",       accent: "bg-sky-500",     soft: "bg-sky-500/10 border-sky-500/20",        text: "text-sky-500" },
   nvidia:     { grad: "from-lime-500 to-emerald-600",   accent: "bg-lime-500",    soft: "bg-lime-500/10 border-lime-500/20",      text: "text-lime-500" },
   openai:     { grad: "from-teal-500 to-cyan-600",      accent: "bg-teal-500",    soft: "bg-teal-500/10 border-teal-500/20",      text: "text-teal-500" },
+  serper:     { grad: "from-emerald-500 to-teal-600",   accent: "bg-emerald-500", soft: "bg-emerald-500/10 border-emerald-500/20",text: "text-emerald-500" },
 };
 const fallbackP = P.openrouter;
 
@@ -78,8 +79,9 @@ const PROVIDER_PRESETS: { id: string; nombre: string; base_url: string; docs_url
   { id: "novita",     nombre: "Novita AI",  base_url: "https://api.novita.ai/v3/openai",                               docs_url: "https://novita.ai/dashboard" },
   { id: "together",   nombre: "Together",   base_url: "https://api.together.xyz/v1",                                   docs_url: "https://api.together.ai/" },
   { id: "fireworks",  nombre: "Fireworks",  base_url: "https://api.fireworks.ai/inference/v1",                         docs_url: "https://fireworks.ai/api-keys" },
-  { id: "mistral",    nombre: "Mistral",    base_url: "https://api.mistral.ai/v1",                                     docs_url: "https://console.mistral.ai/api-keys" },
-  { id: "cohere",     nombre: "Cohere",     base_url: "https://api.cohere.ai/v1",                                      docs_url: "https://dashboard.cohere.com/api-keys" },
+  { id: "mistral",    nombre: "Mistral",              base_url: "https://api.mistral.ai/v1",                                     docs_url: "https://console.mistral.ai/api-keys" },
+  { id: "cohere",     nombre: "Cohere",               base_url: "https://api.cohere.ai/v1",                                      docs_url: "https://dashboard.cohere.com/api-keys" },
+  { id: "serper",     nombre: "Serper (Google Search)", base_url: "https://google.serper.dev",                                  docs_url: "https://serper.dev/api-key" },
 ];
 
 export function AiConfigPanel() {

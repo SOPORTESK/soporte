@@ -38,6 +38,7 @@ const DEFAULT_BASE: Record<string, string> = {
   openrouter: "https://openrouter.ai/api/v1",
   nvidia: "https://integrate.api.nvidia.com/v1",
   openai: "https://api.openai.com/v1",
+  serper: "https://google.serper.dev",
   "67d3697263e070f885c00bb2aff07a0c": "https://api.cloudflare.com/client/v4/accounts/67d3697263e070f885c00bb2aff07a0c/ai/v1",
 };
 
@@ -81,6 +82,7 @@ function envKey(provider: string): string | undefined {
     case "openrouter": return process.env.OPENROUTER_API_KEY;
     case "nvidia": return process.env.NIM_API_KEY || process.env.OPENROUTER_API_KEY;
     case "openai": return process.env.OPENAI_API_KEY;
+    case "serper": return process.env.SERPER_API_KEY;
     default: return undefined;
   }
 }

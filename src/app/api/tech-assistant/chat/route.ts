@@ -2220,35 +2220,95 @@ async function searchTechnicalWeb(
     });
   };
 
-  // 1. Motor Principal: DuckDuckGo HTML Search
+  // 0. Motor Principal: Serper (Google Search API oficial, sin captchas, soporta multi-llave)
   try {
-    const res = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(finalQuery)}`, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
-      },
-      signal: AbortSignal.timeout(4500),
-    });
-    if (res.ok) {
-      const html = await res.text();
-      const titleMatches = [...html.matchAll(/<a[^>]+class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)];
-      const snippetMatches = [...html.matchAll(/<a[^>]+class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/gi)];
-      for (let i = 0; i < titleMatches.length; i++) {
-        let rawUrl = titleMatches[i][1];
-        if (rawUrl.includes("uddg=")) {
-          const m = rawUrl.match(/[?&]uddg=([^&]+)/);
-          if (m) rawUrl = decodeURIComponent(m[1]);
+    const provs = await getProviderConfigs();
+    const serperCfg = provs.get("serper");
+    if (serperCfg && serperCfg.keys.length > 0) {
+      const sBase = (serperCfg.baseUrl || "https://google.serper.dev").replace(/\/+$/, "");
+      for (let ki = 0; ki < serperCfg.keys.length; ki++) {
+        const ck = `serper#${ki}/search`;
+        if (isModelCooledDown(ck)) continue;
+        try {
+          const res = await fetch(`${sBase}/search`, {
+            method: "POST",
+            headers: {
+              "X-API-KEY": serperCfg.keys[ki],
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              q: finalQuery,
+              gl: "cr",
+              hl: "es",
+              num: Math.max(limit + 3, 6),
+            }),
+            signal: AbortSignal.timeout(4500),
+          });
+          if (res.ok) {
+            markModelSuccess(ck);
+            const data = await res.json().catch(() => ({} as any));
+            if (data?.answerBox?.link && data?.answerBox?.title) {
+              pushResult(
+                String(data.answerBox.title),
+                String(data.answerBox.link),
+                String(data.answerBox.snippet || data.answerBox.answer || "")
+              );
+            }
+            const organic = Array.isArray(data?.organic) ? data.organic : [];
+            for (const item of organic) {
+              if (results.length >= limit) break;
+              pushResult(
+                String(item?.title || ""),
+                String(item?.link || ""),
+                String(item?.snippet || "")
+              );
+            }
+            if (results.length > 0) break;
+          } else {
+            markModelFailure(ck, res.status);
+            console.warn(`[tech-assistant] Serper #${ki} error HTTP ${res.status}`);
+          }
+        } catch (serr: any) {
+          markModelFailure(ck);
+          console.warn(`[tech-assistant] Excepción Serper #${ki}:`, serr?.message);
         }
-        if (rawUrl.startsWith("//")) rawUrl = `https:${rawUrl}`;
-        const title = titleMatches[i][2];
-        const snippet = snippetMatches[i] ? snippetMatches[i][1] : "";
-        pushResult(title, rawUrl, snippet);
-        if (results.length >= limit) break;
       }
     }
   } catch (err: any) {
-    console.warn("[tech-assistant] Error en DuckDuckGo HTML search:", err?.message);
+    console.warn("[tech-assistant] Error general en Serper:", err?.message);
+  }
+
+  // 1. Motor Secundario: DuckDuckGo HTML Search (solo si Serper no completó los resultados)
+  if (results.length < limit) {
+    try {
+      const res = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(finalQuery)}`, {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+          "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+        },
+        signal: AbortSignal.timeout(4500),
+      });
+      if (res.ok) {
+        const html = await res.text();
+        const titleMatches = [...html.matchAll(/<a[^>]+class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)];
+        const snippetMatches = [...html.matchAll(/<a[^>]+class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/gi)];
+        for (let i = 0; i < titleMatches.length; i++) {
+          let rawUrl = titleMatches[i][1];
+          if (rawUrl.includes("uddg=")) {
+            const m = rawUrl.match(/[?&]uddg=([^&]+)/);
+            if (m) rawUrl = decodeURIComponent(m[1]);
+          }
+          if (rawUrl.startsWith("//")) rawUrl = `https:${rawUrl}`;
+          const title = titleMatches[i][2];
+          const snippet = snippetMatches[i] ? snippetMatches[i][1] : "";
+          pushResult(title, rawUrl, snippet);
+          if (results.length >= limit) break;
+        }
+      }
+    } catch (err: any) {
+      console.warn("[tech-assistant] Error en DuckDuckGo HTML search:", err?.message);
+    }
   }
 
   // 1b. DuckDuckGo Lite (respaldo ultra ligero cuando HTML devuelve challenge)

@@ -52,9 +52,18 @@ export async function POST(req: NextRequest) {
 
   const testSingleKey = async (apiKey: string) => {
     const start = Date.now();
+    const isSerper = provider_id === "serper" || (p.base_url || "").includes("serper.dev");
     try {
       let res: Response;
-      if (provider_id === "google") {
+      if (isSerper) {
+        const base = (p.base_url || "https://google.serper.dev").replace(/\/+$/, "");
+        res = await fetch(`${base}/search`, {
+          method: "POST",
+          headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ q: "Hikvision", num: 1 }),
+          signal: AbortSignal.timeout(10000),
+        });
+      } else if (provider_id === "google") {
         const base = p.base_url || "https://generativelanguage.googleapis.com/v1beta";
         res = await fetch(`${base}/models?key=${apiKey}`, { signal: AbortSignal.timeout(12000) });
       } else if (provider_id === "cloudflare" || (p.base_url || "").includes("api.cloudflare.com")) {
@@ -81,6 +90,14 @@ export async function POST(req: NextRequest) {
 
       const latencyMs = Date.now() - start;
       if (res.ok) {
+        if (isSerper) {
+          return {
+            status: "valid" as const,
+            latencyMs,
+            modelsAvailable: 1,
+            modelList: ["google-search (serper.dev)"],
+          };
+        }
         const data = await res.json().catch(() => ({} as any));
         const raw = data?.models ?? data?.data ?? data?.result ?? [];
         const isCloudflare = provider_id === "cloudflare" || (p.base_url || "").includes("api.cloudflare.com");
@@ -97,7 +114,7 @@ export async function POST(req: NextRequest) {
       }
 
       const data = await res.json().catch(() => ({} as any));
-      const msg = data?.error?.message || data?.error || `HTTP ${res.status}`;
+      const msg = data?.message || data?.error?.message || data?.error || `HTTP ${res.status}`;
       return { status: "invalid" as const, latencyMs, error: String(msg).slice(0, 200) };
     } catch (e: any) {
       return {
