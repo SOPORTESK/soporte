@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { splitApiKeys } from "@/lib/ai/config";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -46,65 +47,85 @@ export async function POST(req: NextRequest) {
     .maybeSingle();
 
   if (!p) return NextResponse.json({ error: "Proveedor no encontrado" }, { status: 404 });
-  if (!p.api_key) return NextResponse.json({ status: "no-key", error: "API key no configurada" });
+  const keys = splitApiKeys(p.api_key);
+  if (keys.length === 0) return NextResponse.json({ status: "no-key", error: "API key no configurada" });
 
-  const start = Date.now();
-  try {
-    let res: Response;
-    if (provider_id === "google") {
-      const base = p.base_url || "https://generativelanguage.googleapis.com/v1beta";
-      res = await fetch(`${base}/models?key=${p.api_key}`, { signal: AbortSignal.timeout(12000) });
-    } else if (provider_id === "cloudflare" || (p.base_url || "").includes("api.cloudflare.com")) {
-      // Cloudflare no soporta /v1/models (405). Usa /ai/models/search propio.
-      if (!p.base_url) return NextResponse.json({ status: "unknown", error: "base_url no configurada. Edite el proveedor y agregue la URL con su Account ID." });
-      if (p.base_url.includes("{ACCOUNT_ID}")) return NextResponse.json({ status: "unknown", error: "La base_url todavía tiene {ACCOUNT_ID}. Edite el proveedor y reemplácelo por su Account ID real." });
-      const base = (p.base_url || "").replace(/\/ai\/v1\/?$/, "").replace(/\/+$/, "");
-      if (!base) return NextResponse.json({ status: "unknown", error: "base_url no configurada para Cloudflare" });
-      res = await fetch(`${base}/ai/models/search?task=Text%20Generation`, {
-        headers: { "Authorization": `Bearer ${p.api_key}` },
-        signal: AbortSignal.timeout(12000),
-      });
-    } else {
-      // Para proveedores OpenAI-compatible: usar endpoint conocido o derivar de base_url
-      let url = listEndpoints[provider_id];
-      if (!url) {
-        const base = (p.base_url || "").replace(/\/+$/, "");
-        if (!base) return NextResponse.json({ status: "unknown", error: "base_url no configurada para este proveedor" });
-        url = `${base}/models`;
+  const testSingleKey = async (apiKey: string) => {
+    const start = Date.now();
+    try {
+      let res: Response;
+      if (provider_id === "google") {
+        const base = p.base_url || "https://generativelanguage.googleapis.com/v1beta";
+        res = await fetch(`${base}/models?key=${apiKey}`, { signal: AbortSignal.timeout(12000) });
+      } else if (provider_id === "cloudflare" || (p.base_url || "").includes("api.cloudflare.com")) {
+        if (!p.base_url) return { status: "unknown" as const, latencyMs: 0, error: "base_url no configurada. Edite el proveedor y agregue la URL con su Account ID." };
+        if (p.base_url.includes("{ACCOUNT_ID}")) return { status: "unknown" as const, latencyMs: 0, error: "La base_url todavía tiene {ACCOUNT_ID}. Edite el proveedor y reemplácelo por su Account ID real." };
+        const base = (p.base_url || "").replace(/\/ai\/v1\/?$/, "").replace(/\/+$/, "");
+        if (!base) return { status: "unknown" as const, latencyMs: 0, error: "base_url no configurada para Cloudflare" };
+        res = await fetch(`${base}/ai/models/search?task=Text%20Generation`, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(12000),
+        });
+      } else {
+        let url = listEndpoints[provider_id];
+        if (!url) {
+          const base = (p.base_url || "").replace(/\/+$/, "");
+          if (!base) return { status: "unknown" as const, latencyMs: 0, error: "base_url no configurada para este proveedor" };
+          url = `${base}/models`;
+        }
+        res = await fetch(url, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: AbortSignal.timeout(12000),
+        });
       }
-      res = await fetch(url, {
-        headers: { "Authorization": `Bearer ${p.api_key}` },
-        signal: AbortSignal.timeout(12000),
-      });
-    }
 
-    const latencyMs = Date.now() - start;
-    if (res.ok) {
+      const latencyMs = Date.now() - start;
+      if (res.ok) {
+        const data = await res.json().catch(() => ({} as any));
+        const raw = data?.models ?? data?.data ?? data?.result ?? [];
+        const isCloudflare = provider_id === "cloudflare" || (p.base_url || "").includes("api.cloudflare.com");
+        const modelList: string[] = Array.isArray(raw)
+          ? raw
+              .map((m: any) => {
+                if (isCloudflare) return m.name || m.id || m;
+                return m.id || m.name || m;
+              })
+              .filter((s: any) => typeof s === "string" && s.length > 0)
+              .sort()
+          : [];
+        return { status: "valid" as const, latencyMs, modelsAvailable: modelList.length, modelList };
+      }
+
       const data = await res.json().catch(() => ({} as any));
-      // Cloudflare /ai/models/search devuelve { success, result: [{ id: UUID, name: "@cf/..." }] }
-      // Otros proveedores devuelven { data: [{ id: "model-name" }] } o { models: [...] }
-      const raw = data?.models ?? data?.data ?? data?.result ?? [];
-      const isCloudflare = provider_id === "cloudflare" || (p.base_url || "").includes("api.cloudflare.com");
-      const modelList: string[] = Array.isArray(raw)
-        ? raw.map((m: any) => {
-            // Cloudflare: usar "name" (ej: @cf/meta/llama-3.1-8b-instruct), no "id" (UUID)
-            if (isCloudflare) return m.name || m.id || m;
-            return m.id || m.name || m;
-          })
-          .filter((s: any) => typeof s === "string" && s.length > 0)
-          .sort()
-        : [];
-      return NextResponse.json({ status: "valid", latencyMs, modelsAvailable: modelList.length, modelList });
+      const msg = data?.error?.message || data?.error || `HTTP ${res.status}`;
+      return { status: "invalid" as const, latencyMs, error: String(msg).slice(0, 200) };
+    } catch (e: any) {
+      return {
+        status: "invalid" as const,
+        latencyMs: Date.now() - start,
+        error: (e?.message || "Timeout").slice(0, 200),
+      };
     }
+  };
 
-    const data = await res.json().catch(() => ({} as any));
-    const msg = data?.error?.message || data?.error || `HTTP ${res.status}`;
-    return NextResponse.json({ status: "invalid", latencyMs, error: String(msg).slice(0, 200) });
-  } catch (e: any) {
+  const results = await Promise.all(keys.map((k) => testSingleKey(k)));
+  const unknownRes = results.find((r) => r.status === "unknown");
+  if (unknownRes) return NextResponse.json(unknownRes);
+
+  const validResults = results.filter((r) => r.status === "valid");
+  if (validResults.length > 0) {
+    const best = validResults[0];
     return NextResponse.json({
-      status: "invalid",
-      latencyMs: Date.now() - start,
-      error: (e?.message || "Timeout").slice(0, 200),
+      ...best,
+      ...(keys.length > 1 && validResults.length < keys.length
+        ? { error: `Activas ${validResults.length} de ${keys.length} llaves (${results.find((r) => r.error)?.error || "alguna llave falló"})` }
+        : {}),
     });
   }
+
+  return NextResponse.json({
+    status: "invalid",
+    latencyMs: results[0]?.latencyMs ?? 0,
+    error: results.map((r, i) => (keys.length > 1 ? `#${i + 1}: ${r.error}` : r.error)).join(" | ").slice(0, 200),
+  });
 }

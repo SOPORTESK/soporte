@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { splitApiKeys } from "@/lib/ai/config";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -35,60 +36,64 @@ interface Result {
 async function pingModel(
   providerId: string,
   baseUrl: string | null,
-  apiKey: string | null,
+  rawApiKey: string | null,
   modelId: string,
   modelo: string
 ): Promise<Result> {
-  const start = Date.now();
-  if (!apiKey) return { id: modelId, status: "no-key", latencyMs: 0, error: "API key no configurada" };
+  const keys = splitApiKeys(rawApiKey);
+  if (keys.length === 0) return { id: modelId, status: "no-key", latencyMs: 0, error: "API key no configurada" };
 
-  try {
-    let res: Response;
+  let lastResult: Result = { id: modelId, status: "down", latencyMs: 0, error: "Sin respuesta" };
+  for (const apiKey of keys) {
+    const start = Date.now();
+    try {
+      let res: Response;
 
-    if (providerId === "google") {
-      const base = baseUrl || "https://generativelanguage.googleapis.com/v1beta";
-      res = await fetch(`${base}/models/${modelo}:generateContent?key=${apiKey}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: "OK" }] }],
-          generationConfig: { maxOutputTokens: 5, temperature: 0 },
-        }),
-        signal: AbortSignal.timeout(30000),
-      });
-    } else {
-      // OpenAI-compatible: groq, openrouter, nvidia, openai
-      const defaults: Record<string, string> = {
-        groq: "https://api.groq.com/openai/v1",
-        openrouter: "https://openrouter.ai/api/v1",
-        nvidia: "https://integrate.api.nvidia.com/v1",
-        openai: "https://api.openai.com/v1",
-      };
-      const base = baseUrl || defaults[providerId] || "";
-      if (!base) return { id: modelId, status: "down", latencyMs: 0, error: "base_url no configurada" };
+      if (providerId === "google") {
+        const base = baseUrl || "https://generativelanguage.googleapis.com/v1beta";
+        res = await fetch(`${base}/models/${modelo}:generateContent?key=${apiKey}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: "OK" }] }],
+            generationConfig: { maxOutputTokens: 5, temperature: 0 },
+          }),
+          signal: AbortSignal.timeout(30000),
+        });
+      } else {
+        const defaults: Record<string, string> = {
+          groq: "https://api.groq.com/openai/v1",
+          openrouter: "https://openrouter.ai/api/v1",
+          nvidia: "https://integrate.api.nvidia.com/v1",
+          openai: "https://api.openai.com/v1",
+        };
+        const base = baseUrl || defaults[providerId] || "";
+        if (!base) return { id: modelId, status: "down", latencyMs: 0, error: "base_url no configurada" };
 
-      res = await fetch(`${base}/chat/completions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: modelo,
-          messages: [{ role: "user", content: "OK" }],
-          max_tokens: 16,
-          temperature: 0,
-        }),
-        signal: AbortSignal.timeout(30000),
-      });
+        res = await fetch(`${base}/chat/completions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            model: modelo,
+            messages: [{ role: "user", content: "OK" }],
+            max_tokens: 16,
+            temperature: 0,
+          }),
+          signal: AbortSignal.timeout(30000),
+        });
+      }
+
+      const latencyMs = Date.now() - start;
+      if (res.ok) return { id: modelId, status: "up", latencyMs };
+
+      const data = await res.json().catch(() => ({} as any));
+      const msg = data?.error?.message || data?.error || `HTTP ${res.status}`;
+      lastResult = { id: modelId, status: "down", latencyMs, error: String(msg).slice(0, 200) };
+    } catch (e: any) {
+      lastResult = { id: modelId, status: "down", latencyMs: Date.now() - start, error: (e?.message || "Timeout").slice(0, 200) };
     }
-
-    const latencyMs = Date.now() - start;
-    if (res.ok) return { id: modelId, status: "up", latencyMs };
-
-    const data = await res.json().catch(() => ({} as any));
-    const msg = data?.error?.message || data?.error || `HTTP ${res.status}`;
-    return { id: modelId, status: "down", latencyMs, error: String(msg).slice(0, 200) };
-  } catch (e: any) {
-    return { id: modelId, status: "down", latencyMs: Date.now() - start, error: (e?.message || "Timeout").slice(0, 200) };
   }
+  return lastResult;
 }
 
 // POST: validar todos los modelos (o uno específico si se pasa model_id)

@@ -20,6 +20,16 @@ export interface ResolvedModel {
   modelo: string;
   apiKey: string;
   baseUrl: string;
+  keyIdx?: number;
+}
+
+export function splitApiKeys(raw?: string | null): string[] {
+  if (!raw || typeof raw !== "string") return [];
+  const parts = raw
+    .split(/[,\n;]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return Array.from(new Set(parts));
 }
 
 const DEFAULT_BASE: Record<string, string> = {
@@ -35,23 +45,33 @@ const DEFAULT_BASE: Record<string, string> = {
 const FALLBACK_CHAINS: Record<AiRole, { provider: string; modelo: string }[]> = {
   chat: [
     { provider: "google", modelo: "gemini-3.5-flash-lite" },
+    { provider: "google", modelo: "gemini-3.8-flash" },
     { provider: "groq", modelo: "openai/gpt-oss-120b" },
-    { provider: "67d3697263e070f885c00bb2aff07a0c", modelo: "@cf/meta/llama-3.1-70b-instruct" },
-    { provider: "openrouter", modelo: "meta-llama/llama-3.3-70b-instruct" },
-    { provider: "google", modelo: "gemini-3-flash-preview" },
+    { provider: "groq", modelo: "qwen/qwen3.8-27b" },
+    { provider: "67d3697263e070f885c00bb2aff07a0c", modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast" },
+    { provider: "67d3697263e070f885c00bb2aff07a0c", modelo: "@cf/mistralai/mistral-small-3.1-24b-instruct" },
+    { provider: "openrouter", modelo: "nvidia/nemotron-3.5-super-vl:free" },
   ],
-  web_search: [{ provider: "google", modelo: "gemini-3.5-flash-lite" }],
-  vision:     [{ provider: "google", modelo: "gemini-3.5-flash-lite" }, { provider: "google", modelo: "gemini-3-flash-preview" }],
+  web_search: [
+    { provider: "google", modelo: "gemini-3.5-flash-lite" },
+    { provider: "google", modelo: "gemini-3.8-flash" },
+  ],
+  vision: [
+    { provider: "google", modelo: "gemini-3.5-flash-lite" },
+    { provider: "google", modelo: "gemini-3.8-flash" },
+    { provider: "67d3697263e070f885c00bb2aff07a0c", modelo: "@cf/mistralai/mistral-small-3.1-24b-instruct" },
+    { provider: "67d3697263e070f885c00bb2aff07a0c", modelo: "@cf/meta/llama-4-scout-17b-16e-instruct" },
+  ],
   transcribe: [{ provider: "google", modelo: "gemini-3.5-flash-lite" }],
-  meta_chat:  [
+  meta_chat: [
     { provider: "google", modelo: "gemini-3.5-flash-lite" },
     { provider: "groq", modelo: "openai/gpt-oss-120b" },
-    { provider: "openrouter", modelo: "meta-llama/llama-3.3-70b-instruct" },
+    { provider: "67d3697263e070f885c00bb2aff07a0c", modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast" },
   ],
-  learn:      [{ provider: "google", modelo: "gemini-3.5-flash-lite" }],
-  auto_close: [{ provider: "google", modelo: "gemini-3.5-flash-lite" }],
-  extract:    [{ provider: "google", modelo: "gemini-3.5-flash-lite" }, { provider: "groq", modelo: "openai/gpt-oss-20b" }],
-  activity:   [{ provider: "google", modelo: "gemini-3.5-flash-lite" }, { provider: "groq", modelo: "openai/gpt-oss-120b" }],
+  learn: [{ provider: "google", modelo: "gemini-3.5-flash-lite" }, { provider: "groq", modelo: "openai/gpt-oss-120b" }],
+  auto_close: [{ provider: "google", modelo: "gemini-3.5-flash-lite" }, { provider: "groq", modelo: "openai/gpt-oss-120b" }],
+  extract: [{ provider: "google", modelo: "gemini-3.5-flash-lite" }, { provider: "groq", modelo: "openai/gpt-oss-20b" }],
+  activity: [{ provider: "google", modelo: "gemini-3.5-flash-lite" }, { provider: "groq", modelo: "openai/gpt-oss-120b" }],
 };
 
 function envKey(provider: string): string | undefined {
@@ -119,31 +139,62 @@ export function invalidateAiConfigCache() {
   cache = null;
 }
 
+function keysFor(cfg: ConfigCache, provider: string): string[] {
+  const dbKeys = splitApiKeys(cfg.providers.get(provider)?.apiKey);
+  const envKeys = splitApiKeys(envKey(provider));
+  return Array.from(new Set([...dbKeys, ...envKeys]));
+}
+
 function keyFor(cfg: ConfigCache, provider: string): string {
-  return cfg.providers.get(provider)?.apiKey || envKey(provider) || "";
+  return keysFor(cfg, provider)[0] || "";
 }
 
 function baseFor(cfg: ConfigCache, provider: string): string {
   return cfg.providers.get(provider)?.baseUrl || DEFAULT_BASE[provider] || "";
 }
 
+export async function getProviderConfigs(): Promise<
+  Map<string, { keys: string[]; baseUrl: string; activo: boolean }>
+> {
+  const cfg = await loadConfig();
+  const out = new Map<string, { keys: string[]; baseUrl: string; activo: boolean }>();
+  const allIds = new Set([...Array.from(cfg.providers.keys()), ...Object.keys(DEFAULT_BASE)]);
+  allIds.forEach((id) => {
+    const p = cfg.providers.get(id);
+    const activo = p ? p.activo : true;
+    const keys = keysFor(cfg, id);
+    const baseUrl = baseFor(cfg, id);
+    if (activo && keys.length > 0) {
+      out.set(id, { keys, baseUrl, activo });
+    }
+  });
+  return out;
+}
+
 /**
  * Cadena de modelos configurada para un rol, en orden de intento.
- * Solo incluye los que tienen API key disponible.
+ * Expande todas las API keys configuradas para rotación automática si una llega al límite.
  */
 export async function getChain(role: AiRole): Promise<ResolvedModel[]> {
   const cfg = await loadConfig();
   const configured = cfg.byRole.get(role) ?? [];
   const source = configured.length > 0 ? configured : FALLBACK_CHAINS[role];
 
-  return source
-    .map(m => ({
-      provider: m.provider,
-      modelo: m.modelo,
-      apiKey: keyFor(cfg, m.provider),
-      baseUrl: baseFor(cfg, m.provider),
-    }))
-    .filter(m => m.apiKey.length > 0);
+  const expanded: ResolvedModel[] = [];
+  for (const m of source) {
+    const keys = keysFor(cfg, m.provider);
+    const baseUrl = baseFor(cfg, m.provider);
+    keys.forEach((apiKey, keyIdx) => {
+      expanded.push({
+        provider: m.provider,
+        modelo: m.modelo,
+        apiKey,
+        baseUrl,
+        keyIdx,
+      });
+    });
+  }
+  return expanded;
 }
 
 /** Primer modelo disponible para un rol, o null si ninguno tiene key. */
@@ -168,12 +219,181 @@ export interface GenerateOptions {
 }
 
 /**
- * Circuit Breaker en memoria para recordar modelos con cuota agotada (429) o caídos,
+ * Circuit Breaker compartido en memoria para recordar modelos/llaves con cuota agotada o caídos,
  * evitando perder segundos reintentando un proveedor que acaba de fallar.
  */
 const modelCooldownUntil = new Map<string, number>();
-const COOLDOWN_QUOTA_MS = 180_000; // 3 minutos si devuelve 429 / 402 / 404
-const COOLDOWN_ERROR_MS = 60_000;  // 1 minuto si da timeout o error 5xx
+const COOLDOWN_DEAD_MS = 30 * 60_000;  // 30 minutos para 402 / 404 / 410 (sin saldo o modelo retirado)
+const COOLDOWN_RATE_MS = 10 * 60_000;  // 10 minutos para 429 (límite de tasa/cuota)
+const COOLDOWN_ERROR_MS = 90_000;      // 90 segundos para 5xx / timeout / red
+
+export function isModelCooledDown(key: string): boolean {
+  return (modelCooldownUntil.get(key) ?? 0) > Date.now();
+}
+
+export function markModelFailure(key: string, status?: number): void {
+  const ms =
+    status === 402 || status === 404 || status === 410
+      ? COOLDOWN_DEAD_MS
+      : status === 429
+        ? COOLDOWN_RATE_MS
+        : COOLDOWN_ERROR_MS;
+  modelCooldownUntil.set(key, Date.now() + ms);
+}
+
+export function markModelSuccess(key: string): void {
+  modelCooldownUntil.delete(key);
+}
+
+const DISCOVERY_TTL_MS = 60 * 60_000;
+const discoveryCache = new Map<string, { at: number; models: string[] }>();
+
+const GOOGLE_PRIORITY = [
+  "gemini-3.5-flash-lite",
+  "gemini-3.8-flash",
+  "gemini-3.7-flash",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-3.1-flash-lite",
+  "gemini-flash-lite-latest",
+  "gemini-flash-latest",
+  "gemma-4-31b-it",
+  "gemma-4-26b-a4b-it",
+  "gemini-3-flash-preview",
+];
+
+/**
+ * Autodescubre modelos activos directamente desde la API del proveedor con caché de 1 hora.
+ */
+export async function discoverProviderModels(
+  provider: string,
+  apiKey: string,
+  baseUrl: string,
+  capability: "chat" | "vision"
+): Promise<string[]> {
+  const isCloudflare = provider === "cloudflare" || baseUrl.includes("api.cloudflare.com");
+  const cacheKey = `${isCloudflare ? "cloudflare" : provider}:${capability}`;
+  const hit = discoveryCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < DISCOVERY_TTL_MS) return hit.models;
+
+  let models: string[] = [];
+  try {
+    if (isCloudflare) {
+      models =
+        capability === "vision"
+          ? [
+              "@cf/mistralai/mistral-small-3.1-24b-instruct",
+              "@cf/meta/llama-4-scout-17b-16e-instruct",
+              "@cf/qwen/qwen3.8-27b",
+              "@cf/meta/llama-3.2-11b-vision-instruct",
+            ]
+          : [
+              "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+              "@cf/mistralai/mistral-small-3.1-24b-instruct",
+              "@cf/qwen/qwen3.8-27b",
+              "@cf/meta/llama-3.1-70b-instruct",
+            ];
+    } else if (provider === "google") {
+      const base = (baseUrl || DEFAULT_BASE.google).replace(/\/+$/, "");
+      const res = await fetch(`${base}/models?key=${apiKey}`, { signal: AbortSignal.timeout(6000) });
+      if (res.ok) {
+        const json = await res.json().catch(() => ({}));
+        const raw: string[] = (Array.isArray(json?.models) ? json.models : [])
+          .filter(
+            (m: any) =>
+              Array.isArray(m?.supportedGenerationMethods) &&
+              m.supportedGenerationMethods.includes("generateContent")
+          )
+          .map((m: any) => String(m.name || "").replace(/^models\//, ""))
+          .filter(
+            (id: string) =>
+              /^(?:gemini|gemma-4)/i.test(id) &&
+              !/(tts|image|embedding|aqa|robotics|computer-use|transcribe|nano-banana)/i.test(id)
+          );
+        const rank = (id: string) => {
+          const i = GOOGLE_PRIORITY.indexOf(id);
+          if (i !== -1) return i;
+          if (id.includes("flash")) return 100;
+          if (id.includes("gemma-4")) return 150;
+          return 200;
+        };
+        models = Array.from(new Set(raw)).sort((a, b) => rank(a) - rank(b));
+      }
+    } else if (provider === "openrouter") {
+      const res = await fetch("https://openrouter.ai/api/v1/models", { signal: AbortSignal.timeout(6000) });
+      if (res.ok) {
+        const json = await res.json().catch(() => ({}));
+        const list = Array.isArray(json?.data) ? json.data : [];
+        const free = list.filter((m: any) => typeof m?.id === "string" && m.id.includes(":free"));
+        if (capability === "vision") {
+          models = free
+            .filter(
+              (m: any) =>
+                m?.architecture?.input_modalities?.includes("image") ||
+                String(m?.architecture?.modality || "").includes("image")
+            )
+            .map((m: any) => m.id);
+        } else {
+          const familyRank = (id: string) => {
+            if (/nvidia\/nemotron/i.test(id)) return 1;
+            if (/google\/gemma/i.test(id)) return 2;
+            if (/meta-llama/i.test(id)) return 3;
+            if (/qwen/i.test(id)) return 4;
+            if (/deepseek/i.test(id)) return 5;
+            if (/mistral/i.test(id)) return 6;
+            return 10;
+          };
+          models = free.map((m: any) => m.id).sort((a: string, b: string) => familyRank(a) - familyRank(b));
+        }
+      }
+    } else if (provider === "groq") {
+      const base = (baseUrl || DEFAULT_BASE.groq).replace(/\/+$/, "");
+      const res = await fetch(`${base}/models`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (res.ok) {
+        const json = await res.json().catch(() => ({}));
+        const raw: string[] = (Array.isArray(json?.data) ? json.data : [])
+          .map((m: any) => String(m?.id || ""))
+          .filter((id: string) => id && !/(whisper|guard|orpheus|allam|tts)/i.test(id));
+        const groqPref = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b"];
+        models = raw.sort((a, b) => {
+          const ia = groqPref.indexOf(a);
+          const ib = groqPref.indexOf(b);
+          return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+        });
+      }
+    } else if (provider === "nvidia") {
+      const base = (baseUrl || DEFAULT_BASE.nvidia).replace(/\/+$/, "");
+      const res = await fetch(`${base}/models`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (res.ok) {
+        const json = await res.json().catch(() => ({}));
+        const raw: string[] = (Array.isArray(json?.data) ? json.data : [])
+          .map((m: any) => String(m?.id || ""))
+          .filter((id: string) => id && !/(embed|rerank|guard|reward|nvclip|parse|ocr)/i.test(id));
+        if (capability === "vision") {
+          const vl = raw.filter((id) => /(?:-vl\b|vision)/i.test(id));
+          models = vl.sort((a, b) =>
+            a === "nvidia/nemotron-3.5-super-vl-120b-a12b" ? -1 : b === "nvidia/nemotron-3.5-super-vl-120b-a12b" ? 1 : 0
+          );
+        } else {
+          models = raw.filter((id) => /(instruct|nemotron|qwen|llama-3\.3)/i.test(id));
+        }
+      }
+    }
+  } catch {
+    // Mantener lista vacía si falla la consulta
+  }
+
+  if (models.length > 0) {
+    discoveryCache.set(cacheKey, { at: Date.now(), models });
+  }
+  return models;
+}
 
 function compressSystemPrompt(sys: string | undefined, maxChars = 10_000): string | undefined {
   if (!sys || sys.length <= maxChars) return sys;
@@ -193,29 +413,19 @@ export async function generateText(
   opts: GenerateOptions
 ): Promise<{ text: string; modelo: string; provider: string } | null> {
   const rawChain = await getChain(role);
-  if (rawChain.length === 0) return null;
-
-  const now = Date.now();
-  // Priorizar modelos sanos; dejar los que están en enfriamiento al final como último recurso
-  const chain = [
-    ...rawChain.filter(m => (modelCooldownUntil.get(`${m.provider}/${m.modelo}`) ?? 0) <= now),
-    ...rawChain.filter(m => (modelCooldownUntil.get(`${m.provider}/${m.modelo}`) ?? 0) > now),
-  ];
-
   const { system, messages, temperature = 0.3, maxTokens = 2048, timeoutMs = 25_000, tools } = opts;
 
   const deadline = Date.now() + timeoutMs;
   const safeMaxTokens = Math.min(maxTokens, 4096);
+  const triedKeys = new Set<string>();
 
-  for (let idx = 0; idx < chain.length; idx++) {
-    const m = chain[idx];
-    const modelKey = `${m.provider}/${m.modelo}`;
-    const remainingTime = deadline - Date.now();
-    if (remainingTime < 2000) {
-      console.warn(`[ai-fallback] ⏱️ Tiempo global agotado (${timeoutMs}ms), abortando cadena.`);
-      break;
-    }
-    const timeoutPerModel = Math.min(remainingTime, 12_000);
+  const cooldownKeyFor = (m: ResolvedModel) => `${m.provider}#${m.keyIdx ?? 0}/${m.modelo}`;
+
+  const invokeModel = async (
+    m: ResolvedModel,
+    timeoutPerModel: number
+  ): Promise<{ text: string; modelo: string; provider: string } | null> => {
+    const modelKey = cooldownKeyFor(m);
     const t0 = Date.now();
     try {
       console.log(`[ai-fallback] Intentando con ${modelKey} (timeout: ${timeoutPerModel}ms)...`);
@@ -224,7 +434,7 @@ export async function generateText(
       if (m.provider === "google") {
         const effectiveSystem = compressSystemPrompt(system, 24_000);
         const body: Record<string, unknown> = {
-          contents: messages.map(x => ({
+          contents: messages.map((x) => ({
             role: x.role === "assistant" ? "model" : "user",
             parts: [{ text: x.content }],
           })),
@@ -241,10 +451,9 @@ export async function generateText(
         });
         if (!res.ok) {
           const errBody = await res.text().catch(() => "");
-          const cooldown = res.status === 429 || res.status === 402 || res.status === 404 ? COOLDOWN_QUOTA_MS : COOLDOWN_ERROR_MS;
-          modelCooldownUntil.set(modelKey, Date.now() + cooldown);
-          console.warn(`[ai-fallback] ❌ ${modelKey} falló con status ${res.status} (${Date.now() - t0}ms, enfriamiento ${cooldown / 1000}s): ${errBody.substring(0, 100)} -> Saltando al siguiente...`);
-          continue;
+          markModelFailure(modelKey, res.status);
+          console.warn(`[ai-fallback] ❌ ${modelKey} falló con status ${res.status} (${Date.now() - t0}ms): ${errBody.substring(0, 100)} -> Saltando al siguiente...`);
+          return null;
         }
         const data = await res.json();
         text =
@@ -254,39 +463,89 @@ export async function generateText(
             .filter(Boolean)
             .join("") ?? "";
       } else {
-        // Proveedores secundarios (Groq, Cloudflare, OpenRouter): mantener margen amplio para no recortar precedentes ni manuales
         const effectiveSystem = compressSystemPrompt(system, m.provider === "groq" ? 15_000 : 18_000);
         const msgs = effectiveSystem ? [{ role: "system", content: effectiveSystem }, ...messages] : messages;
         const res = await fetch(`${m.baseUrl}/chat/completions`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${m.apiKey}` },
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${m.apiKey}` },
           body: JSON.stringify({ model: m.modelo, messages: msgs, temperature, max_tokens: safeMaxTokens }),
           signal: AbortSignal.timeout(timeoutPerModel),
         });
         if (!res.ok) {
           const errBody = await res.text().catch(() => "");
-          const cooldown = res.status === 429 || res.status === 402 || res.status === 404 ? COOLDOWN_QUOTA_MS : COOLDOWN_ERROR_MS;
-          modelCooldownUntil.set(modelKey, Date.now() + cooldown);
-          console.warn(`[ai-fallback] ❌ ${modelKey} falló con status ${res.status} (${Date.now() - t0}ms, enfriamiento ${cooldown / 1000}s): ${errBody.substring(0, 100)} -> Saltando al siguiente...`);
-          continue;
+          markModelFailure(modelKey, res.status);
+          console.warn(`[ai-fallback] ❌ ${modelKey} falló con status ${res.status} (${Date.now() - t0}ms): ${errBody.substring(0, 100)} -> Saltando al siguiente...`);
+          return null;
         }
         const data = await res.json();
         const choice = data.choices?.[0];
-        text = choice?.message?.content || choice?.message?.reasoning || "";
+        text = choice?.message?.content || choice?.message?.reasoning || choice?.message?.reasoning_content || "";
         if (text) {
           text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
         }
       }
 
       if (text.trim()) {
-        modelCooldownUntil.delete(modelKey);
+        markModelSuccess(modelKey);
         console.log(`[ai-fallback] ✅ Éxito con ${modelKey} en ${Date.now() - t0}ms`);
         return { text: text.trim(), modelo: m.modelo, provider: m.provider };
       }
+      markModelFailure(modelKey);
+      return null;
     } catch (e: any) {
-      modelCooldownUntil.set(modelKey, Date.now() + COOLDOWN_ERROR_MS);
-      console.warn(`[ai-fallback] ⚠️ Excepción/Timeout en ${modelKey} (${Date.now() - t0}ms, enfriamiento 60s): ${e?.message} -> Saltando al siguiente...`);
+      markModelFailure(modelKey);
+      console.warn(`[ai-fallback] ⚠️ Excepción/Timeout en ${modelKey} (${Date.now() - t0}ms): ${e?.message} -> Saltando al siguiente...`);
+      return null;
     }
+  };
+
+  // 1. Probar cadena configurada (sanos primero, luego enfriados como respaldo)
+  const chain = [
+    ...rawChain.filter((m) => !isModelCooledDown(cooldownKeyFor(m))),
+    ...rawChain.filter((m) => isModelCooledDown(cooldownKeyFor(m))),
+  ];
+
+  for (const m of chain) {
+    const remainingTime = deadline - Date.now();
+    if (remainingTime < 2000) {
+      console.warn(`[ai-fallback] ⏱️ Tiempo agotado en cadena principal (${timeoutMs}ms).`);
+      break;
+    }
+    triedKeys.add(cooldownKeyFor(m));
+    const hit = await invokeModel(m, Math.min(remainingTime, 12_000));
+    if (hit) return hit;
+  }
+
+  // 2. Auto-reparación de emergencia: autodescubrir modelos activos en proveedores activos si la cadena falló
+  const rescueDeadline = Math.max(deadline, Date.now() + 12_000);
+  try {
+    const provs = await getProviderConfigs();
+    const order = ["google", "67d3697263e070f885c00bb2aff07a0c", "cloudflare", "groq", "openrouter", "nvidia"];
+    const discoveredCandidates: ResolvedModel[] = [];
+
+    for (const pid of order) {
+      const cfg = provs.get(pid);
+      if (!cfg || cfg.keys.length === 0) continue;
+      const list = await discoverProviderModels(pid, cfg.keys[0], cfg.baseUrl, "chat");
+      for (const modelo of list.slice(0, 4)) {
+        cfg.keys.forEach((apiKey, keyIdx) => {
+          const candidate: ResolvedModel = { provider: pid, modelo, apiKey, baseUrl: cfg.baseUrl, keyIdx };
+          const ck = cooldownKeyFor(candidate);
+          if (!triedKeys.has(ck) && !isModelCooledDown(ck)) {
+            discoveredCandidates.push(candidate);
+          }
+        });
+      }
+    }
+
+    for (const candidate of discoveredCandidates.slice(0, 6)) {
+      const rem = rescueDeadline - Date.now();
+      if (rem < 2000) break;
+      const hit = await invokeModel(candidate, Math.min(rem, 9_000));
+      if (hit) return hit;
+    }
+  } catch (e: any) {
+    console.warn("[ai-fallback] Error en autodescubrimiento de emergencia:", e?.message);
   }
 
   return null;

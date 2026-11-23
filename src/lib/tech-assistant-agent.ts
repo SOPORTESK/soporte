@@ -36,7 +36,8 @@ const TECH_MEMORY_KEY = "tech_assistant_memory";
 const TECH_PERSONALITY_KEY = "tech_assistant_personality";
 const MEMORY_CACHE_KEY = "tech_assistant_memory_cache_v1";
 const PERSONALITY_CACHE_KEY = "tech_assistant_personality_cache_v1";
-const MAX_MEMORIES = 50;
+const MAX_MEMORIES = 80;
+const CLIENT_HISTORY_TTL_MS = 5 * 60_000;
 const MAX_THREAD_CASES = 12;
 const MAX_THREAD_MESSAGES = 14;
 const MAX_MESSAGE_CHARS = 2600;
@@ -142,8 +143,10 @@ export function detectMemorySaveIntent(message: string): string | null {
   const msg = String(message || "").trim();
   if (!msg || msg.length > 500) return null;
   const patterns = [
-    /^(?:por favor\s+)?(?:recuerda|recordá|aprende|aprendé|anota|anotá|guarda en (?:tu )?memoria)\s+(?:que\s+)?(.+)/i,
-    /^(?:para futuros casos|de ahora en adelante)[,:]?\s*(?:recuerda|recordá|ten en cuenta|toma en cuenta)?\s*(?:que\s+)?(.+)/i,
+    /^(?:por favor\s+)?(?:recuerda|recordá|acordate|acuerdate|aprende|aprendé|anota|anotá|apunta|apuntá|guarda en (?:tu )?memoria)\s+(?:de\s+)?(?:que\s+)?(.+)/i,
+    /^(?:para futuros casos|de ahora en adelante)[,:]?\s*(?:recuerda|recordá|acordate|ten en cuenta|toma en cuenta|no olvides)?\s*(?:que\s+)?(.+)/i,
+    /^(?:toma nota(?:\s+de)?|no olvides|guarda esto|regla nueva)\s*[:,-]?\s*(?:que\s+)?(.+)/i,
+    /^(siempre que pase\s+.+)/i,
   ];
   for (const rx of patterns) {
     const m = msg.match(rx);
@@ -152,6 +155,51 @@ export function detectMemorySaveIntent(message: string): string | null {
     }
   }
   return null;
+}
+
+export async function getClientPriorCasesSummary(
+  supabase: any,
+  phone?: string | null,
+  currentCaseId?: string | null
+): Promise<string> {
+  const cleanPhone = String(phone || "").replace(/[^0-9]/g, "");
+  if (cleanPhone.length < 8) return "";
+
+  const tail8 = cleanPhone.slice(-8);
+  const cKey = `tech_client_prior_${tail8}_${currentCaseId || "none"}`;
+  const cached = cacheGet(cKey) as { at: number; text: string } | undefined;
+  if (cached && Date.now() - cached.at < CLIENT_HISTORY_TTL_MS) {
+    return cached.text;
+  }
+
+  try {
+    let q = supabase
+      .from("sek_cases")
+      .select("id, created_at, estado, marca, modelo, problema, resolucion")
+      .ilike("customer_phone", `%${tail8}%`)
+      .order("created_at", { ascending: false })
+      .limit(4);
+    if (currentCaseId) {
+      q = q.neq("id", currentCaseId);
+    }
+    const { data: priorCases } = await q;
+    if (!Array.isArray(priorCases) || priorCases.length === 0) {
+      cacheSet(cKey, { at: Date.now(), text: "" });
+      return "";
+    }
+    const lines = priorCases.slice(0, 3).map((c: any) => {
+      const fecha = c.created_at ? new Date(c.created_at).toLocaleDateString("es-CR") : "s/f";
+      const eq = [c.marca, c.modelo].filter(Boolean).join(" ") || "Equipo no especificado";
+      const prob = String(c.problema || "Sin resumen").replace(/\s+/g, " ").slice(0, 140);
+      const res = c.resolucion ? ` | Resolución: ${String(c.resolucion).replace(/\s+/g, " ").slice(0, 140)}` : "";
+      return `• Caso #${String(c.id).slice(0, 8)} (${fecha}, ${c.estado}): ${eq} — ${prob}${res}`;
+    });
+    const text = lines.join("\n");
+    cacheSet(cKey, { at: Date.now(), text });
+    return text;
+  } catch {
+    return "";
+  }
 }
 
 // ── 2. PERSONALIDAD E INSTRUCCIONES PERSONALIZADAS ──

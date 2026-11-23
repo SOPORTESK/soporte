@@ -1,5 +1,34 @@
-import { createClient } from "@supabase/supabase-js";
 import { Buffer } from "node:buffer";
+import {
+  getProviderConfigs,
+  isModelCooledDown,
+  markModelFailure,
+  markModelSuccess,
+  discoverProviderModels,
+} from "@/lib/ai/config";
+
+const VISION_CACHE_TTL_MS = 6 * 60 * 60_000;
+const VISION_CACHE_MAX = 200;
+const visionCache = new Map<string, { at: number; text: string }>();
+
+function getCachedVision(url: string): string | null {
+  const hit = visionCache.get(url);
+  if (!hit) return null;
+  if (Date.now() - hit.at > VISION_CACHE_TTL_MS) {
+    visionCache.delete(url);
+    return null;
+  }
+  return hit.text;
+}
+
+function setCachedVision(url: string, text: string): void {
+  if (!url || !text) return;
+  if (visionCache.size >= VISION_CACHE_MAX) {
+    const oldest = visionCache.keys().next().value;
+    if (oldest) visionCache.delete(oldest);
+  }
+  visionCache.set(url, { at: Date.now(), text });
+}
 
 function getMimeType(url: string, declaredType?: string): string {
   const clean = url.split("?")[0].toLowerCase();
@@ -35,9 +64,22 @@ function getMimeType(url: string, declaredType?: string): string {
   return "image/jpeg";
 }
 
+function findCloudflareConfig(
+  provs: Map<string, { keys: string[]; baseUrl: string; activo: boolean }>
+): { id: string; keys: string[]; baseUrl: string } | null {
+  for (const [id, cfg] of provs.entries()) {
+    if (id === "cloudflare" || id === "67d3697263e070f885c00bb2aff07a0c" || cfg.baseUrl.includes("api.cloudflare.com")) {
+      if (cfg.keys.length > 0 && cfg.baseUrl) {
+        return { id, keys: cfg.keys, baseUrl: cfg.baseUrl.replace(/\/+$/, "") };
+      }
+    }
+  }
+  return null;
+}
+
 /**
- * Transcribe un archivo de audio directamente usando Groq Whisper (ultra rápido y preciso en español).
- * Con fallback a Google Gemini en caso de contingencia.
+ * Transcribe un archivo de audio directamente usando Groq Whisper (rotación multi-llave y modelos)
+ * con fallback a Google Gemini multi-llave/multi-modelo.
  */
 export async function transcribeAudio(
   mediaUrl: string,
@@ -46,28 +88,11 @@ export async function transcribeAudio(
   if (!mediaUrl || typeof mediaUrl !== "string") return null;
 
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-    let groqKey = process.env.GROQ_API_KEY || "";
-    let googleKey = process.env.GEMINI_API_KEY || "";
+    const provs = await getProviderConfigs();
+    const groqCfg = provs.get("groq");
+    const googleCfg = provs.get("google");
 
-    if (supabaseUrl && serviceKey) {
-      try {
-        const supabase = createClient(supabaseUrl, serviceKey);
-        const { data: provs } = await supabase
-          .from("sek_ai_providers")
-          .select("id, api_key")
-          .in("id", ["groq", "google"]);
-        if (provs) {
-          for (const p of provs) {
-            if (p.id === "groq" && p.api_key) groqKey = p.api_key;
-            if (p.id === "google" && p.api_key) googleKey = p.api_key;
-          }
-        }
-      } catch {}
-    }
-
-    const fileRes = await fetch(mediaUrl);
+    const fileRes = await fetch(mediaUrl, { signal: AbortSignal.timeout(12000) });
     if (!fileRes.ok) {
       console.warn("[transcribe] Error descargando audio:", fileRes.status, mediaUrl);
       return null;
@@ -80,71 +105,98 @@ export async function transcribeAudio(
       return null;
     }
 
-    // 1. Intento primario ultra rápido con Groq Whisper
-    if (groqKey) {
-      try {
-        const blob = new Blob([buf], { type: mediaType || "audio/ogg" });
-        const formData = new FormData();
-        formData.append("file", blob, "audio.ogg");
-        formData.append("model", "whisper-large-v3");
-        formData.append("language", "es");
+    // 1. Intento primario ultra rápido con Groq Whisper (multi-llave)
+    if (groqCfg && groqCfg.keys.length > 0) {
+      const whisperModels = ["whisper-large-v3-turbo", "whisper-large-v3"];
+      for (let ki = 0; ki < groqCfg.keys.length; ki++) {
+        const key = groqCfg.keys[ki];
+        for (const wm of whisperModels) {
+          const ck = `groq#${ki}/${wm}`;
+          if (isModelCooledDown(ck)) continue;
+          try {
+            const blob = new Blob([buf], { type: mediaType || "audio/ogg" });
+            const formData = new FormData();
+            formData.append("file", blob, "audio.ogg");
+            formData.append("model", wm);
+            formData.append("language", "es");
 
-        const t0 = Date.now();
-        const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${groqKey}` },
-          body: formData,
-          signal: AbortSignal.timeout(12000),
-        });
+            const t0 = Date.now();
+            const res = await fetch(`${groqCfg.baseUrl.replace(/\/+$/, "")}/audio/transcriptions`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${key}` },
+              body: formData,
+              signal: AbortSignal.timeout(12000),
+            });
 
-        if (res.ok) {
-          const data = await res.json();
-          const text = String(data?.text || "").trim();
-          if (text) {
-            console.log(`[transcribe] Groq Whisper transcribió audio en ${Date.now() - t0}ms: "${text.substring(0, 60)}..."`);
-            return text;
+            if (res.ok) {
+              const data = await res.json();
+              const text = String(data?.text || "").trim();
+              if (text) {
+                markModelSuccess(ck);
+                console.log(`[transcribe] Groq ${wm} (#${ki}) transcribió audio en ${Date.now() - t0}ms`);
+                return text;
+              }
+            } else {
+              markModelFailure(ck, res.status);
+              const errBody = await res.text().catch(() => "");
+              console.warn(`[transcribe] ${ck} error:`, res.status, errBody.substring(0, 100));
+            }
+          } catch (err: any) {
+            markModelFailure(ck);
+            console.warn(`[transcribe] Excepción ${ck}:`, err?.message);
           }
-        } else {
-          const errBody = await res.text().catch(() => "");
-          console.warn("[transcribe] Groq Whisper error:", res.status, errBody.substring(0, 100));
         }
-      } catch (err: any) {
-        console.warn("[transcribe] Excepción Groq Whisper:", err?.message);
       }
     }
 
-    // 2. Fallback con Google Gemini
-    if (googleKey) {
-      try {
-        const mimeType = getMimeType(mediaUrl, mediaType);
-        const base64Data = buf.toString("base64");
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${googleKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{
-                parts: [
-                  { text: "Transcribe literalmente este audio en español. Devuelve únicamente el texto transcrito, sin explicaciones ni introducciones." },
-                  { inline_data: { mime_type: mimeType, data: base64Data } }
-                ]
-              }],
-              generationConfig: { maxOutputTokens: 2048, temperature: 0 }
-            }),
-            signal: AbortSignal.timeout(15000),
-          }
-        );
-        if (res.ok) {
-          const d = await res.json();
-          const text = String(d?.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
-          if (text) {
-            console.log(`[transcribe] Gemini transcribió audio: "${text.substring(0, 60)}..."`);
-            return text;
+    // 2. Fallback con Google Gemini multi-llave y modelos activos
+    if (googleCfg && googleCfg.keys.length > 0) {
+      const mimeType = getMimeType(mediaUrl, mediaType);
+      const base64Data = buf.toString("base64");
+      const googleModels = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-3-flash-preview"];
+      const base = googleCfg.baseUrl.replace(/\/+$/, "");
+
+      for (let ki = 0; ki < googleCfg.keys.length; ki++) {
+        const key = googleCfg.keys[ki];
+        for (const gm of googleModels) {
+          const ck = `google#${ki}/${gm}`;
+          if (isModelCooledDown(ck)) continue;
+          try {
+            const res = await fetch(`${base}/models/${gm}:generateContent?key=${key}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{
+                  parts: [
+                    { text: "Transcribe literalmente este audio en español. Devuelve únicamente el texto transcrito, sin explicaciones ni introducciones." },
+                    { inline_data: { mime_type: mimeType, data: base64Data } },
+                  ],
+                }],
+                generationConfig: { maxOutputTokens: 2048, temperature: 0 },
+              }),
+              signal: AbortSignal.timeout(15000),
+            });
+            if (res.ok) {
+              const d = await res.json();
+              const text = (d?.candidates?.[0]?.content?.parts || [])
+                .filter((p: any) => !p?.thought)
+                .map((p: any) => p.text)
+                .filter(Boolean)
+                .join("")
+                .trim();
+              if (text) {
+                markModelSuccess(ck);
+                console.log(`[transcribe] Gemini ${gm} (#${ki}) transcribió audio`);
+                return text;
+              }
+            } else {
+              markModelFailure(ck, res.status);
+            }
+          } catch (err: any) {
+            markModelFailure(ck);
+            console.warn(`[transcribe] Excepción Gemini ${gm}:`, err?.message);
           }
         }
-      } catch (err: any) {
-        console.warn("[transcribe] Excepción Gemini transcribe:", err?.message);
       }
     }
 
@@ -155,9 +207,71 @@ export async function transcribeAudio(
   }
 }
 
+async function callOpenAiCompatibleVision(params: {
+  ck: string;
+  endpoint: string;
+  apiKey: string;
+  model: string;
+  prompt: string;
+  mimeType: string;
+  base64Data: string;
+  label: string;
+  byteLength: number;
+  timeoutMs?: number;
+}): Promise<string | null> {
+  if (isModelCooledDown(params.ck)) return null;
+  try {
+    const res = await fetch(params.endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: params.model,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: params.prompt },
+              { type: "image_url", image_url: { url: `data:${params.mimeType};base64,${params.base64Data}` } },
+            ],
+          },
+        ],
+        temperature: 0.1,
+        max_tokens: 1024,
+      }),
+      signal: AbortSignal.timeout(params.timeoutMs ?? 15000),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      const msg = data.choices?.[0]?.message;
+      let text = String(msg?.content || msg?.reasoning || msg?.reasoning_content || "").trim();
+      if (text) text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+      if (text) {
+        markModelSuccess(params.ck);
+        console.log(`[vision] ✅ ${params.label} (${params.model}, ${(params.byteLength / 1024).toFixed(1)} KB)`);
+        return text;
+      }
+      markModelFailure(params.ck);
+      return null;
+    }
+
+    markModelFailure(params.ck, res.status);
+    const errTxt = await res.text().catch(() => "");
+    console.warn(`[vision] ${params.label} (${params.model}) error ${res.status}:`, errTxt.substring(0, 120));
+    return null;
+  } catch (e: any) {
+    markModelFailure(params.ck);
+    console.warn(`[vision] Excepción ${params.label} (${params.model}):`, e?.message);
+    return null;
+  }
+}
+
 /**
  * Analiza cualquier archivo multimedia (imagen, video, audio, PDF, texto)
- * usando Groq Whisper para audio o Gemini Vision para imágenes/video.
+ * usando una cascada de 5 capas: Google multi-llave -> Cloudflare Vision -> OpenRouter :free -> NVIDIA NIM -> OCR local Tesseract.
  */
 export async function analyzeMedia(
   mediaUrl: string,
@@ -166,6 +280,9 @@ export async function analyzeMedia(
   fileName = ""
 ): Promise<string | null> {
   if (!mediaUrl || typeof mediaUrl !== "string") return null;
+
+  const cached = getCachedVision(mediaUrl);
+  if (cached) return cached;
 
   try {
     const mimeType = getMimeType(mediaUrl, mediaType);
@@ -178,40 +295,18 @@ export async function analyzeMedia(
     if (isAudio) {
       const transcription = await transcribeAudio(mediaUrl, mimeType);
       if (transcription) {
-        return `Transcripción de nota de voz: "${transcription}"`;
+        const wrapped = `Transcripción de nota de voz: "${transcription}"`;
+        setCachedVision(mediaUrl, wrapped);
+        return wrapped;
       }
       return null;
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-    let googleKey = process.env.GEMINI_API_KEY || "";
-    let openrouterKey = process.env.OPENROUTER_API_KEY || "";
-    let nvidiaKey = process.env.NVIDIA_API_KEY || "";
-
-    if (supabaseUrl && serviceKey) {
-      try {
-        const supabase = createClient(supabaseUrl, serviceKey);
-        const { data: provs } = await supabase
-          .from("sek_ai_providers")
-          .select("id, api_key")
-          .in("id", ["google", "openrouter", "nvidia"]);
-        if (provs) {
-          for (const p of provs) {
-            if (p.id === "google" && p.api_key) googleKey = p.api_key;
-            if (p.id === "openrouter" && p.api_key) openrouterKey = p.api_key;
-            if (p.id === "nvidia" && p.api_key) nvidiaKey = p.api_key;
-          }
-        }
-      } catch {
-        // Fallback a variables de entorno
-      }
-    }
-
-    if (!googleKey && !openrouterKey && !nvidiaKey) {
-      console.warn("[vision] No se encontró ninguna API key disponible para análisis visual");
-      return null;
-    }
+    const provs = await getProviderConfigs();
+    const googleCfg = provs.get("google");
+    const cfCfg = findCloudflareConfig(provs);
+    const openrouterCfg = provs.get("openrouter");
+    const nvidiaCfg = provs.get("nvidia");
 
     let prompt = "";
     if (isImage) {
@@ -254,7 +349,7 @@ Analiza este documento PDF: extrae marcas, modelos, números de serie, reportes 
 Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae toda la información relevante de hardware, errores, configuraciones y diagnóstico para soporte.`;
     }
 
-    const fileRes = await fetch(mediaUrl);
+    const fileRes = await fetch(mediaUrl, { signal: AbortSignal.timeout(12000) });
     if (!fileRes.ok) {
       console.warn("[vision] Error descargando archivo:", fileRes.status, mediaUrl);
       return null;
@@ -268,168 +363,187 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
     }
     const base64Data = buf.toString("base64");
 
-    // 1. Intentar con Google Gemini directo (modelos activos con cuota disponible)
-    if (googleKey) {
-      const candidateModels = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-3-flash-preview"];
-      for (const m of candidateModels) {
-        try {
-          const gRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${googleKey}`,
-            {
+    // 1. Nivel 1: Google Gemini directo (multi-llave + modelos prioritarios + autodescubiertos)
+    if (googleCfg && googleCfg.keys.length > 0) {
+      const staticGoogle = [
+        "gemini-3.5-flash-lite",
+        "gemini-3.8-flash",
+        "gemini-3.5-flash",
+        "gemini-3.7-flash",
+        "gemini-3.6-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-3-flash-preview",
+      ];
+      const discovered = await discoverProviderModels("google", googleCfg.keys[0], googleCfg.baseUrl, "vision");
+      const googleModels = Array.from(new Set([...staticGoogle, ...discovered])).slice(0, 10);
+      const base = googleCfg.baseUrl.replace(/\/+$/, "");
+
+      for (let ki = 0; ki < googleCfg.keys.length; ki++) {
+        const key = googleCfg.keys[ki];
+        for (const m of googleModels) {
+          const ck = `google#${ki}/${m}`;
+          if (isModelCooledDown(ck)) continue;
+          try {
+            const gRes = await fetch(`${base}/models/${m}:generateContent?key=${key}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 contents: [{
                   parts: [
                     { text: prompt },
-                    { inline_data: { mime_type: mimeType, data: base64Data } }
-                  ]
+                    { inline_data: { mime_type: mimeType, data: base64Data } },
+                  ],
                 }],
-                generationConfig: { maxOutputTokens: 2048, temperature: 0.1 }
+                generationConfig: { maxOutputTokens: 2048, temperature: 0.1 },
               }),
-              signal: AbortSignal.timeout(15000),
+              signal: AbortSignal.timeout(12000),
+            });
+            if (gRes.ok) {
+              const data = await gRes.json();
+              const text = data.candidates?.[0]?.content?.parts
+                ?.filter((p: any) => !p?.thought)
+                .map((p: any) => p.text)
+                .filter(Boolean)
+                .join("")
+                .trim();
+              if (text) {
+                markModelSuccess(ck);
+                console.log(`[vision] ✅ Google ${m} (#${ki}, ${(buf.byteLength / 1024).toFixed(1)} KB)`);
+                setCachedVision(mediaUrl, text);
+                return text;
+              }
+              markModelFailure(ck);
+            } else {
+              markModelFailure(ck, gRes.status);
+              const errTxt = await gRes.text().catch(() => "");
+              console.warn(`[vision] Google ${m} (#${ki}) error:`, gRes.status, errTxt.substring(0, 120));
             }
-          );
-          if (gRes.ok) {
-            const data = await gRes.json();
-            const text = data.candidates?.[0]?.content?.parts
-              ?.filter((p: any) => !p?.thought)
-              .map((p: any) => p.text)
-              .filter(Boolean)
-              .join("")
-              .trim();
-            if (text) {
-              console.log(`[vision] Análisis exitoso con Google ${m} (${(buf.byteLength / 1024).toFixed(1)} KB)`);
-              return text;
-            }
-          } else {
-            const errTxt = await gRes.text();
-            console.warn(`[vision] Gemini ${m} error:`, gRes.status, errTxt.substring(0, 120));
+          } catch (e: any) {
+            markModelFailure(ck);
+            console.warn(`[vision] Fetch error Google ${m} (#${ki}):`, e?.message);
           }
-        } catch (e: any) {
-          console.warn(`[vision] Fetch error ${m}:`, e?.message);
         }
       }
     }
 
-    // 2. Respaldo con OpenRouter Vision (priorizar modelos :free activos + autodescubrimiento si cambian IDs)
-    if (isImage && openrouterKey && buf.byteLength <= 8 * 1024 * 1024) {
+    // 2. Nivel 2: Cloudflare Workers AI Vision (10,000 neuronas gratis/día)
+    if (isImage && cfCfg && buf.byteLength <= 8 * 1024 * 1024) {
+      const cfModels = [
+        "@cf/mistralai/mistral-small-3.1-24b-instruct",
+        "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "@cf/qwen/qwen3.8-27b",
+        "@cf/meta/llama-3.2-11b-vision-instruct",
+      ];
+      for (let ki = 0; ki < cfCfg.keys.length; ki++) {
+        const key = cfCfg.keys[ki];
+        for (const cfModel of cfModels) {
+          const text = await callOpenAiCompatibleVision({
+            ck: `cloudflare#${ki}/${cfModel}`,
+            endpoint: `${cfCfg.baseUrl}/chat/completions`,
+            apiKey: key,
+            model: cfModel,
+            prompt,
+            mimeType,
+            base64Data,
+            label: `Cloudflare #${ki}`,
+            byteLength: buf.byteLength,
+            timeoutMs: 15000,
+          });
+          if (text) {
+            setCachedVision(mediaUrl, text);
+            return text;
+          }
+        }
+      }
+    }
+
+    // 3. Nivel 3: OpenRouter Vision (:free estáticos + autodescubiertos)
+    if (isImage && openrouterCfg && openrouterCfg.keys.length > 0 && buf.byteLength <= 8 * 1024 * 1024) {
       const staticOrModels = [
         "nvidia/nemotron-3.5-super-vl:free",
         "inclusionai/ling-3.2-flash:free",
         "google/gemma-4-31b-it:free",
-        "qwen/qwen2.5-vl-72b-instruct",
       ];
-      const tryOpenRouterModel = async (orModel: string): Promise<string | null> => {
-        try {
-          const orRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${openrouterKey}`,
-            },
-            body: JSON.stringify({
-              model: orModel,
-              messages: [
-                {
-                  role: "user",
-                  content: [
-                    { type: "text", text: prompt },
-                    { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } },
-                  ],
-                },
-              ],
-              temperature: 0.1,
-              max_tokens: 1024,
-            }),
-            signal: AbortSignal.timeout(15000),
+      const discoveredOr = await discoverProviderModels("openrouter", openrouterCfg.keys[0], openrouterCfg.baseUrl, "vision");
+      const orModels = Array.from(new Set([...staticOrModels, ...discoveredOr, "qwen/qwen2.5-vl-72b-instruct"])).slice(0, 8);
+      const endpoint = `${openrouterCfg.baseUrl.replace(/\/+$/, "")}/chat/completions`;
+
+      for (let ki = 0; ki < openrouterCfg.keys.length; ki++) {
+        const key = openrouterCfg.keys[ki];
+        for (const orModel of orModels) {
+          const text = await callOpenAiCompatibleVision({
+            ck: `openrouter#${ki}/${orModel}`,
+            endpoint,
+            apiKey: key,
+            model: orModel,
+            prompt,
+            mimeType,
+            base64Data,
+            label: `OpenRouter #${ki}`,
+            byteLength: buf.byteLength,
+            timeoutMs: 15000,
           });
-          if (orRes.ok) {
-            const data = await orRes.json();
-            const text = data.choices?.[0]?.message?.content?.trim();
-            if (text) {
-              console.log(`[vision] Análisis exitoso con OpenRouter ${orModel} (${(buf.byteLength / 1024).toFixed(1)} KB)`);
-              return text;
-            }
-          } else {
-            const errTxt = await orRes.text().catch(() => "");
-            console.warn(`[vision] OpenRouter ${orModel} error:`, orRes.status, errTxt.substring(0, 120));
-          }
-        } catch (e: any) {
-          console.warn(`[vision] Excepción OpenRouter ${orModel}:`, e?.message);
-        }
-        return null;
-      };
-
-      for (const orModel of staticOrModels) {
-        const res = await tryOpenRouterModel(orModel);
-        if (res) return res;
-      }
-
-      // Autodescubrimiento dinámico de cualquier modelo :free con soporte de imagen en OpenRouter
-      try {
-        const mRes = await fetch("https://openrouter.ai/api/v1/models", { signal: AbortSignal.timeout(6000) });
-        if (mRes.ok) {
-          const mJson = await mRes.json();
-          const discovered = (Array.isArray(mJson?.data) ? mJson.data : [])
-            .filter((m: any) =>
-              typeof m?.id === "string" &&
-              m.id.includes(":free") &&
-              !staticOrModels.includes(m.id) &&
-              (m.architecture?.input_modalities?.includes("image") || String(m.architecture?.modality || "").includes("image"))
-            )
-            .map((m: any) => m.id)
-            .slice(0, 4);
-          for (const dModel of discovered) {
-            const res = await tryOpenRouterModel(dModel);
-            if (res) return res;
-          }
-        }
-      } catch {
-        // Ignorar fallo de autodescubrimiento
-      }
-    }
-
-    // 3. Respaldo directo con NVIDIA NIM Vision
-    if (isImage && nvidiaKey && buf.byteLength <= 8 * 1024 * 1024) {
-      try {
-        const nvRes = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${nvidiaKey}`,
-          },
-          body: JSON.stringify({
-            model: "nvidia/nemotron-3.5-super-vl-120b-a12b",
-            messages: [
-              {
-                role: "user",
-                content: [
-                  { type: "text", text: prompt },
-                  { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } },
-                ],
-              },
-            ],
-            temperature: 0.1,
-            max_tokens: 1024,
-          }),
-          signal: AbortSignal.timeout(15000),
-        });
-        if (nvRes.ok) {
-          const data = await nvRes.json();
-          const text = data.choices?.[0]?.message?.content?.trim();
           if (text) {
-            console.log(`[vision] Análisis exitoso con NVIDIA NIM (${(buf.byteLength / 1024).toFixed(1)} KB)`);
+            setCachedVision(mediaUrl, text);
             return text;
           }
-        } else {
-          const errTxt = await nvRes.text().catch(() => "");
-          console.warn("[vision] NVIDIA NIM error:", nvRes.status, errTxt.substring(0, 120));
         }
-      } catch (e: any) {
-        console.warn("[vision] Excepción NVIDIA NIM:", e?.message);
       }
     }
+
+    // 4. Nivel 4: NVIDIA NIM Direct Vision
+    if (isImage && nvidiaCfg && nvidiaCfg.keys.length > 0 && buf.byteLength <= 8 * 1024 * 1024) {
+      const discoveredNv = await discoverProviderModels("nvidia", nvidiaCfg.keys[0], nvidiaCfg.baseUrl, "vision");
+      const nvModels = Array.from(new Set(["nvidia/nemotron-3.5-super-vl-120b-a12b", ...discoveredNv])).slice(0, 4);
+      const endpoint = `${nvidiaCfg.baseUrl.replace(/\/+$/, "")}/chat/completions`;
+
+      for (let ki = 0; ki < nvidiaCfg.keys.length; ki++) {
+        const key = nvidiaCfg.keys[ki];
+        for (const nvModel of nvModels) {
+          const text = await callOpenAiCompatibleVision({
+            ck: `nvidia#${ki}/${nvModel}`,
+            endpoint,
+            apiKey: key,
+            model: nvModel,
+            prompt,
+            mimeType,
+            base64Data,
+            label: `NVIDIA #${ki}`,
+            byteLength: buf.byteLength,
+            timeoutMs: 15000,
+          });
+          if (text) {
+            setCachedVision(mediaUrl, text);
+            return text;
+          }
+        }
+      }
+    }
+
+    // 5. Nivel 5: OCR Local Offline (tesseract.js v7) — red de seguridad gratuita que nunca caduca
+    if (isImage && buf.byteLength <= 8 * 1024 * 1024) {
+      try {
+        const Tesseract = await import("tesseract.js");
+        const ocrRes = await Promise.race([
+          Tesseract.recognize(buf, "spa+eng"),
+          new Promise<null>((r) => setTimeout(() => r(null), 14000)),
+        ]);
+        const cleanOcr = String((ocrRes as any)?.data?.text || "")
+          .replace(/\r/g, "")
+          .replace(/[ \t]+/g, " ")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
+        if (cleanOcr.length >= 12) {
+          const result = `[LECTURA OCR LOCAL DE CAPTURA (respaldo automático sin nube)]\nTexto literal visible en la imagen:\n${cleanOcr.slice(0, 2200)}\n\nNota técnica: usar los modelos, puertos, IPs, códigos de error y menús leídos literalmente arriba para diagnosticar.`;
+          console.log(`[vision] ✅ OCR Local Tesseract extrajo ${cleanOcr.length} chars`);
+          setCachedVision(mediaUrl, result);
+          return result;
+        }
+      } catch (ocrErr: any) {
+        console.warn("[vision] Error en OCR local Tesseract:", ocrErr?.message);
+      }
+    }
+
     return null;
   } catch (err: any) {
     console.error("[vision] analyzeMedia exception:", err?.message);

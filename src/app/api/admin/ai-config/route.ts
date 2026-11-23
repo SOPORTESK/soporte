@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
-import { invalidateAiConfigCache } from "@/lib/ai/config";
+import { invalidateAiConfigCache, splitApiKeys } from "@/lib/ai/config";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -25,10 +25,16 @@ async function requireAdmin() {
   return { ok: true as const, email: user.email! };
 }
 
+function maskSingleKey(k: string): string {
+  if (k.length <= 10) return "•".repeat(k.length);
+  return `${k.slice(0, 6)}${"•".repeat(Math.min(k.length - 10, 12))}${k.slice(-4)}`;
+}
+
 function maskKey(key: string | null): string | null {
-  if (!key) return null;
-  if (key.length <= 10) return "•".repeat(key.length);
-  return `${key.slice(0, 6)}${"•".repeat(Math.min(key.length - 10, 20))}${key.slice(-4)}`;
+  const keys = splitApiKeys(key);
+  if (keys.length === 0) return null;
+  if (keys.length === 1) return maskSingleKey(keys[0]);
+  return `${keys.length} llaves (${maskSingleKey(keys[0])}, ...)`;
 }
 
 // GET: listar proveedores + modelos

@@ -507,7 +507,7 @@ export function AiConfigPanel() {
                             <input type={showKey ? "text" : "password"} value={keyValue}
                               onChange={e => setKeyValue(e.target.value)}
                               onKeyDown={e => { if (e.key === "Enter") saveKey(p.id); if (e.key === "Escape") setEditKey(null); }}
-                              placeholder="Pegue la API key y presione Enter" autoFocus
+                              placeholder="Pegue una o varias API keys separadas por coma y presione Enter" autoFocus
                               className="w-full pl-3 pr-9 py-2.5 rounded-xl border border-border bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500/40" />
                             <button type="button" onClick={() => setShowKey(v => !v)}
                               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
