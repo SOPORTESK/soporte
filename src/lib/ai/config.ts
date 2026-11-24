@@ -398,9 +398,29 @@ export async function discoverProviderModels(
 
 function compressSystemPrompt(sys: string | undefined, maxChars = 10_000): string | undefined {
   if (!sys || sys.length <= maxChars) return sys;
-  // Conservar cabecera de contexto (38%) y el bloque más reciente + reglas/fuentes al final (62%)
-  // para nunca amputar los últimos mensajes del caso abierto.
-  const head = Math.floor(maxChars * 0.38);
+
+  const startMarker = "<<<CONVERSACION_CASO_ACTUAL>>>";
+  const endMarker = "<<<FIN_CONVERSACION_CASO_ACTUAL>>>";
+  const startIdx = sys.indexOf(startMarker);
+  const endIdx = sys.indexOf(endMarker);
+
+  if (startIdx !== -1 && endIdx > startIdx) {
+    const prefix = sys.substring(0, startIdx);
+    const convAndTail = sys.substring(startIdx);
+    const notice = "\n\n[...Referencias secundarias resumidas para preservar íntegramente el chat del caso...]\n\n";
+    const prefixBudget = maxChars - convAndTail.length - notice.length;
+
+    if (prefixBudget >= 900) {
+      return `${prefix.substring(0, prefixBudget).trimEnd()}${notice}${convAndTail}`;
+    }
+
+    const minHeader = Math.min(prefix.length, Math.min(1200, Math.floor(maxChars * 0.15)));
+    const convBudget = Math.max(1500, maxChars - minHeader - notice.length);
+    return `${prefix.substring(0, minHeader).trimEnd()}${notice}${convAndTail.substring(Math.max(0, convAndTail.length - convBudget))}`;
+  }
+
+  // Fallback si no hay marcadores: 35% cabecera y 65% tramo final
+  const head = Math.floor(maxChars * 0.35);
   const tail = maxChars - head;
   return `${sys.substring(0, head)}\n\n[...Contexto histórico intermedio resumido para optimizar ventana...]\n\n${sys.substring(sys.length - tail)}`;
 }
@@ -433,7 +453,7 @@ export async function generateText(
       let text = "";
 
       if (m.provider === "google") {
-        const effectiveSystem = compressSystemPrompt(system, 24_000);
+        const effectiveSystem = compressSystemPrompt(system, 40_000);
         const body: Record<string, unknown> = {
           contents: messages.map((x) => ({
             role: x.role === "assistant" ? "model" : "user",
@@ -464,7 +484,12 @@ export async function generateText(
             .filter(Boolean)
             .join("") ?? "";
       } else {
-        const effectiveSystem = compressSystemPrompt(system, m.provider === "groq" ? 15_000 : 18_000);
+        const isCloudflare =
+          m.provider === "67d3697263e070f885c00bb2aff07a0c" ||
+          m.provider === "cloudflare" ||
+          m.baseUrl.includes("api.cloudflare.com");
+        const sysLimit = isCloudflare ? 22_000 : m.modelo.includes("qwen3.8") ? 16_000 : 32_000;
+        const effectiveSystem = compressSystemPrompt(system, sysLimit);
         const msgs = effectiveSystem ? [{ role: "system", content: effectiveSystem }, ...messages] : messages;
         const res = await fetch(`${m.baseUrl}/chat/completions`, {
           method: "POST",
@@ -480,7 +505,7 @@ export async function generateText(
         }
         const data = await res.json();
         const choice = data.choices?.[0];
-        text = choice?.message?.content || choice?.message?.reasoning || choice?.message?.reasoning_content || "";
+        text = String(choice?.message?.content || "");
         if (text) {
           text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
         }

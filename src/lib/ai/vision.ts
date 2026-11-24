@@ -335,7 +335,7 @@ async function callGoogleVisionCandidate(params: {
               { inline_data: { mime_type: params.mimeType, data: params.base64Data } },
             ],
           }],
-          generationConfig: { maxOutputTokens: 750, temperature: 0.1 },
+          generationConfig: { maxOutputTokens: 1100, temperature: 0.1 },
         }),
         signal,
       }
@@ -409,7 +409,7 @@ async function callOpenAiCompatibleVision(params: {
           },
         ],
         temperature: 0.1,
-        max_tokens: 750,
+        max_tokens: 1200,
       }),
       signal,
     });
@@ -417,9 +417,13 @@ async function callOpenAiCompatibleVision(params: {
     if (res.ok) {
       const data = await res.json();
       const msg = data.choices?.[0]?.message;
-      let text = String(msg?.content || msg?.reasoning || msg?.reasoning_content || "").trim();
+      let text = String(msg?.content || "").trim();
       if (text) text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-      if (text) {
+      const isReasoningLeak =
+        /^(?:we need to analyze|the user wants a technical analysis|let'?s (?:analyze|look|re-read)|okay,?\s*let'?s look at)\b/i.test(
+          text
+        );
+      if (text && !isReasoningLeak) {
         markVisionSuccess({ provider: params.provider, keyIdx: params.keyIdx, model: params.model });
         console.log(`[vision] ✅ ${params.label} (${params.model}, ${(params.byteLength / 1024).toFixed(1)} KB)`);
         return text;
@@ -482,8 +486,9 @@ async function runAnalyzeMediaInternal(
     if (isImage) {
       prompt = `Eres ingeniero senior en seguridad electrónica (CCTV, NVR/DVR, control de acceso, redes, alarmas). ${userText ? `Consulta: "${userText}".` : ""}
 
-Analiza esta imagen de forma concisa y precisa:
-1. EQUIPO: marca, modelo exacto, serie/MAC/firmware visibles.
+Responde EXCLUSIVAMENTE en español, directo al grano y sin preámbulos ni razonamiento interno. Si es una factura, etiqueta o pantalla de software, escribe primero MARCA, MODELO EXACTO y TIPO DE EQUIPO (DVR/NVR/Cámara análoga o IP), seguido de textos/errores/menús literales visibles.
+
+1. EQUIPO: marca, modelo exacto, tipo de equipo (DVR/NVR/Cámara análoga/IP) y serie/MAC/firmware visibles.
 2. PANTALLA / ERRORES: transcribe texto literal, códigos de error, IPs, puertos, estado de cámaras/LEDs o menús visibles.
 3. DIAGNÓSTICO Y PASOS: causa probable y pasos técnicos puntuales por prioridad.`;
     } else if (isVideo) {
@@ -571,13 +576,17 @@ Analiza esta imagen de forma concisa y precisa:
     const orTasks: CandidateTask[] = [];
     if (canInlineUpload && openrouterCfg && openrouterCfg.keys.length > 0) {
       const staticOrModels = [
-        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-        "nvidia/nemotron-3.5-super-vl:free",
-        "inclusionai/ling-3.2-flash:free",
         "google/gemma-4-31b-it:free",
+        "google/gemma-4-26b-a4b-it:free",
+        "inclusionai/ling-3.2-flash:free",
+        "nvidia/nemotron-3.5-super-vl:free",
       ];
-      const discoveredOr = await discoverProviderModels("openrouter", openrouterCfg.keys[0], openrouterCfg.baseUrl, "vision");
-      const orModels = Array.from(new Set([...staticOrModels, ...discoveredOr])).slice(0, 8);
+      const discoveredOr = (
+        await discoverProviderModels("openrouter", openrouterCfg.keys[0], openrouterCfg.baseUrl, "vision")
+      ).filter((id) => !/-reasoning(?::|$)/i.test(id));
+      const orModels = Array.from(new Set([...staticOrModels, ...discoveredOr]))
+        .filter((id) => !/-reasoning(?::|$)/i.test(id))
+        .slice(0, 8);
       const endpoint = `${openrouterCfg.baseUrl.replace(/\/+$/, "")}/chat/completions`;
       for (let ki = 0; ki < openrouterCfg.keys.length; ki++) {
         for (const orModel of orModels) {
@@ -695,10 +704,10 @@ Analiza esta imagen de forma concisa y precisa:
 
     const nextUntried = (list: CandidateTask[]) => list.find((t) => !attempted.has(t.ck) && isVisionHealthy(t.ck));
 
-    // Ola 1 en paralelo: 1er sano de Google + 1er sano de OpenRouter :free + 1er sano de Cloudflare
+    // Ola 1 en paralelo: 1er sano de Cloudflare + 1er sano de Google + 1er sano de OpenRouter :free (sin modelos reasoning)
     const cloudRem1 = cloudDeadline - Date.now();
     if (cloudRem1 >= 2000) {
-      const wave1Candidates = [nextUntried(googleTasks), nextUntried(orTasks), nextUntried(cfTasks)].filter(
+      const wave1Candidates = [nextUntried(cfTasks), nextUntried(googleTasks), nextUntried(orTasks)].filter(
         (c): c is CandidateTask => Boolean(c)
       );
       wave1Candidates.forEach((c) => attempted.add(c.ck));
@@ -734,8 +743,8 @@ Analiza esta imagen de forma concisa y precisa:
       }
     }
 
-    // Red de seguridad garantizada: OCR Local Offline (tesseract.js v7) dentro del presupuesto restante
-    if (canInlineUpload) {
+    // Red de seguridad garantizada: OCR Local Offline solo en servidor local PM2 (nunca quema CPU en Vercel)
+    if (canInlineUpload && !process.env.VERCEL) {
       try {
         const ocrBudget = Math.max(6000, totalDeadline - Date.now());
         const Tesseract = await import("tesseract.js");

@@ -175,7 +175,7 @@ export async function getClientPriorCasesSummary(
   try {
     let q = supabase
       .from("sek_cases")
-      .select("id, created_at, estado, marca, modelo, problema, resolucion")
+      .select("id, created_at, estado, marca, modelo, problema, resolucion, histtecnico")
       .ilike("customer_phone", `%${tail8}%`)
       .order("created_at", { ascending: false })
       .limit(4);
@@ -187,12 +187,30 @@ export async function getClientPriorCasesSummary(
       cacheSet(cKey, { at: Date.now(), text: "" });
       return "";
     }
+    const BOILERPLATE_TECH_RE =
+      /bienvenido al soporte|nombre de la cuenta|vendedor encargado|procederemos a cerrar|ha sido un placer|algo m[aá]s en lo que (?:te|le) pueda|cerrad[oa] por inactividad|brindarnos m[aá]s detalles/i;
+
     const lines = priorCases.slice(0, 3).map((c: any) => {
       const fecha = c.created_at ? new Date(c.created_at).toLocaleDateString("es-CR") : "s/f";
       const eq = [c.marca, c.modelo].filter(Boolean).join(" ") || "Equipo no especificado";
       const prob = String(c.problema || "Sin resumen").replace(/\s+/g, " ").slice(0, 140);
       const res = c.resolucion ? ` | Resolución: ${String(c.resolucion).replace(/\s+/g, " ").slice(0, 140)}` : "";
-      return `• Caso #${String(c.id).slice(0, 8)} (${fecha}, ${c.estado}): ${eq} — ${prob}${res}`;
+
+      const ht = Array.isArray(c.histtecnico) ? c.histtecnico : [];
+      const substantiveTech = ht
+        .filter((m: any) => {
+          if (!m || typeof m.content !== "string") return false;
+          if (m.role === "ia" || m.role === "nota") return false;
+          const txt = m.content.trim();
+          return txt.length >= 25 && !BOILERPLATE_TECH_RE.test(txt);
+        })
+        .map((m: any) => String(m.content).trim());
+      const techPart =
+        substantiveTech.length > 0
+          ? ` | Indicaciones previas del técnico: ${substantiveTech.slice(-2).join(" | ").replace(/\s+/g, " ").slice(0, 260)}`
+          : "";
+
+      return `• Caso #${String(c.id).slice(0, 8)} (${fecha}, ${c.estado}): ${eq} — ${prob}${res}${techPart}`;
     });
     const text = lines.join("\n");
     cacheSet(cKey, { at: Date.now(), text });

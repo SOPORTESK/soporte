@@ -516,25 +516,80 @@ function computeDomainScores(rawText: string): { scores: Record<string, number>;
 
 function extractValidHardwareModels(text: string): string[] {
   if (!text) return [];
-  const cleanText = text.replace(/nota-voz-[\w.-]+/gi, " ").replace(/\b\d{6,}\b/g, " ");
+  const cleanText = text
+    .replace(/nota-voz-[\w.-]+/gi, " ")
+    .replace(/\bfe\/\d{4}\/\d+\b/gi, " ")
+    .replace(/\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/g, " ")
+    .replace(/\bv\d+\.\d+[\w.-]*\b/gi, " ")
+    .replace(/\b300\d{5,}(?:\/\d+)?\b/g, " ")
+    .replace(/\b\d{6,}\b/g, " ");
   const rawMatches =
-    cleanText.match(/\b([a-z]{1,4}[-][a-z0-9\/-]+|[a-z]{1,4}\d{2,5}[a-z0-9\/-]*|ivms-?\d+|hikcentral|smartpss|biotime|zkbio|configtool|sadp)\b/gi) || [];
+    cleanText.match(
+      /\b((?:hik-)?[a-z]{1,4}[-][a-z0-9\/-]+|[a-z]{1,4}\d{2,5}[a-z0-9\/-]*|ivms-?\d+|hikcentral|smartpss|biotime|zkbio|configtool|sadp)\b/gi
+    ) || [];
+
+  const FALSE_POSITIVES = new Set([
+    "ip67",
+    "h265",
+    "h264",
+    "5mp",
+    "2mp",
+    "3mp",
+    "4mp",
+    "8mp",
+    "30mts",
+    "20mts",
+    "10mts",
+    "5in1",
+    "a-ha",
+    "5-in-1",
+    "24-horas",
+    "dd-mm-aaaa",
+    "40365-h",
+    "11-97",
+    "13-97",
+    "14-97",
+    "1-2000",
+    "2-2000",
+  ]);
 
   const valid = new Set<string>();
   for (const m of rawMatches) {
-    const lower = m.trim().toLowerCase();
-    if (lower.length < 4) continue;
+    let lower = m.trim().toLowerCase().replace(/[),.;:]+$/, "");
+    if (lower.length < 4 || FALSE_POSITIVES.has(lower)) continue;
     if (/^m0000/i.test(lower)) continue;
+    if (/^\d+[-/]\d+/.test(lower)) continue;
+    if (/^\d+(?:mp|mts?|mm|gb|tb|ch|hdd|hz|v|a|w)$/i.test(lower)) continue;
     if (["http", "https", "jpeg", "webm", "html", "case", "auto", "json", "hora", "nota", "para", "como", "este"].some((w) => lower.startsWith(w))) {
       continue;
     }
+
+    // Normalizar confusiones OCR frecuentes ("O" -> "0" en modelos Hikvision como DS-2CE16DOT-LXTS)
+    if (/^(?:hik-)?(?:ids-|ds-)/.test(lower)) {
+      lower = lower.replace(/(\d[a-z]{0,2})o(t(?:\b|-)|\d)/gi, "$10$2");
+    }
+
     const isKnownSoftware = /^(ivms|hikcentral|smartpss|biotime|zkbio|configtool|sadp)/.test(lower);
     const hasLetterAndDigit = /[a-z]/i.test(lower) && /\d/.test(lower);
     if (isKnownSoftware || hasLetterAndDigit) {
       valid.add(lower);
     }
   }
-  return [...valid];
+
+  const list = [...valid];
+  const hasRealHqhiDvr = list.some((m) => /^(?:hik-)?ids-7\d{2,3}(?:hqhi|hghi|huhi)/i.test(m));
+  const filtered = list.filter((m) => {
+    if (hasRealHqhiDvr && /^ios-7\d{2}(?:hqhi|hghi|huhi)/i.test(m)) return false;
+    return true;
+  });
+
+  const modelPriority = (m: string): number => {
+    if (/^(?:hik-)?(?:ids-|ds-2ce|ds-2cd|ds-7\d|xvr|nvr|dvr|dh-|dhi-|ipc-|ds-k|ax-|uap-|rb\d)/i.test(m)) return 100;
+    if (/^(?:ivms|hikcentral|smartpss|biotime|zkbio|configtool|sadp)/.test(m)) return 10;
+    return 50;
+  };
+
+  return filtered.sort((a, b) => modelPriority(b) - modelPriority(a));
 }
 
 async function getFullKnowledgeAndCasesIndex(serviceClient: any): Promise<{
@@ -1039,6 +1094,9 @@ export async function POST(req: NextRequest) {
     let openCaseConversation = "";
     let substantiveOpenCaseText = "";
     let clienteData: any = {};
+    let detectedArchitecture = "";
+    let isAnalogCoaxCase = false;
+    let detectedCaseModels: string[] = [];
 
     if (targetCase) {
       clienteData = typeof targetCase.cliente === "object" && targetCase.cliente ? targetCase.cliente : {};
@@ -1126,23 +1184,64 @@ export async function POST(req: NextRequest) {
         return a._seq - b._seq;
       });
 
-      const compactVisionText = (raw: unknown, maxLen: number): string => {
+      const REASONING_NOISE_RE =
+        /^(?:the user wants a technical analysis|we need to analyze|we need to extract|we need to provide|let'?s re-read the prompt|let'?s look closer|wait,?\s*is there a problem|provide three sections|prob(?:able)? cause:\s*the camera is online)\b/i;
+      const INVOICE_NOISE_RE =
+        /^(?:esta factura se rige|autorizada mediante resoluciones|publicadas en la gaceta|no se aceptan devoluciones|el producto debe venir|todas los accesorios|vencido el plazo|mensual sin que esto|n[uú]mero de identificaci[oó]n fiscal|correo electr[oó]nico:|tel[eé]fono:|t[eé]rminos de pago|referencia de pago|condici[oó]n:|^\d{18,}$)/i;
+      const HIGH_SIGNAL_VISION_RE =
+        /\b(?:i?ds-[a-z0-9\/-]+|hik-ds-[a-z0-9\/-]+|dh-[a-z0-9\/-]+|ipc-[a-z0-9\/-]+|xvr\d+|nvr\d+|modelo|model:|marca|brand\b|sn:|serie|c[aá]mara|grabador|dvr|nvr|hvr|h[ií]brida|an[aá]log[ao]|hdtvi|hdcvi|ahd|cvbs|5\s*in\s*1|descripci[oó]n|no\s+soportado|not\s+supported|d[ií]a\s*\/?\s*noche|day\s*\/?\s*night|osd|ptz|wdr|luz\s+blanca|luz\s+suplementaria|sadp|hitools|ivms|offline|error|puerto|port\b|192\.168\.|10\.\d+\.|172\.\d+\.)/i;
+
+      const sanitizeAndCompactVision = (raw: unknown, maxLen: number): string => {
         const cleaned = String(raw || "")
           .replace(/^[-*_]{3,}$/gm, "")
           .replace(/^#{1,6}\s*/gm, "")
           .replace(/\*{1,3}/g, "")
-          .replace(/\n{2,}/g, "\n")
-          .trim();
-        if (cleaned.length <= maxLen) return cleaned;
-        return `${cleaned.slice(0, maxLen).trimEnd()}...`;
+          .replace(/\r/g, "");
+
+        const rawLines = cleaned
+          .split(/\n+/)
+          .map((l) => l.trim())
+          .filter((l) => {
+            if (!l || l.length < 2) return false;
+            if (REASONING_NOISE_RE.test(l)) return false;
+            if (INVOICE_NOISE_RE.test(l)) return false;
+            if (/^\d{16,}$/.test(l)) return false;
+            return true;
+          });
+
+        const keyLines: string[] = [];
+        const restLines: string[] = [];
+        const seen = new Set<string>();
+        for (const l of rawLines) {
+          const norm = l.toLowerCase();
+          if (seen.has(norm)) continue;
+          seen.add(norm);
+          if (HIGH_SIGNAL_VISION_RE.test(l)) {
+            keyLines.push(l);
+          } else {
+            restLines.push(l);
+          }
+        }
+
+        const prioritized =
+          keyLines.length > 0
+            ? [`[DATOS CLAVE]: ${keyLines.join(" | ")}`, ...restLines.slice(0, 12)]
+            : rawLines;
+        const joined = prioritized.join("\n").trim();
+        if (joined.length <= maxLen) return joined;
+        return `${joined.slice(0, maxLen).trimEnd()}...`;
       };
 
-      const totalMediaCount = allEvents.filter((m) => m.mediaUrl).length;
-      let seenMediaIdx = 0;
+      const isVisualAttachment = (m: any): boolean =>
+        Boolean(m?.mediaUrl) && !m.transcription && !String(m.mediaType || "").startsWith("audio/");
+
+      const totalVisualMediaCount = allEvents.filter(isVisualAttachment).length;
+      let seenVisualIdx = 0;
 
       const transcriptLines: string[] = [];
       const mediaTranscriptLines: string[] = [];
       const substantiveParts: string[] = [];
+      const fullEvidenceParts: string[] = [];
 
       const SYSTEM_CLOSURE_NOISE_RE =
         /cerrad[oa]\s+por\s+falta\s+de\s+respuesta|procedemos\s+a\s+cerrar\s+este\s+caso|calificar[ií]a\s+la\s+atenci[oó]n|encuesta\s+de\s+satisfacci[oó]n|conversaci[oó]n\s+ha\s+sido\s+cerrada/i;
@@ -1160,6 +1259,9 @@ export async function POST(req: NextRequest) {
             : String(m.time);
         }
         let line = `[${timeStr}] ${m.speaker}: ${rawText}`.trim();
+        if (rawText) {
+          fullEvidenceParts.push(rawText);
+        }
         if (rawText && !isBoilerplateOrFileMessage(rawText)) {
           substantiveParts.push(rawText);
         } else if (rawText && m.speaker === "Cliente") {
@@ -1167,8 +1269,9 @@ export async function POST(req: NextRequest) {
           if (stripped.length >= 6) substantiveParts.push(stripped);
         }
         if (m.mediaUrl) {
-          seenMediaIdx++;
-          const isRecentAttachment = seenMediaIdx > Math.max(0, totalMediaCount - 2);
+          const isVisual = isVisualAttachment(m);
+          if (isVisual) seenVisualIdx++;
+          const isRecentVisual = isVisual && seenVisualIdx > Math.max(0, totalVisualMediaCount - 3);
           const kind = m.mediaType?.startsWith("audio/")
             ? "Nota de voz / Audio"
             : m.mediaType?.startsWith("image/")
@@ -1180,10 +1283,12 @@ export async function POST(req: NextRequest) {
           if (m.transcription) {
             line += `\n   -> TRANSCRIPCIÓN LITERAL DEL AUDIO:\n"${m.transcription}"`;
             substantiveParts.push(`Audio del cliente: "${m.transcription}"`);
+            fullEvidenceParts.push(String(m.transcription));
           } else if (m._visionAnalysis && !m._visionAnalysis.includes("[ANÁLISIS DE ADJUNTO NO DISPONIBLE")) {
-            const condensed = compactVisionText(m._visionAnalysis, isRecentAttachment ? 1000 : 380);
+            const condensed = sanitizeAndCompactVision(m._visionAnalysis, isRecentVisual ? 1200 : 750);
             line += `\n   -> ANÁLISIS TÉCNICO DEL ADJUNTO:\n${condensed}`;
-            substantiveParts.push(compactVisionText(m._visionAnalysis, 420));
+            substantiveParts.push(sanitizeAndCompactVision(m._visionAnalysis, 700));
+            fullEvidenceParts.push(String(m._visionAnalysis));
           } else {
             line += `\n   -> [ATENCIÓN: No se pudo extraer el análisis visual de este adjunto (${m.fileName || kind}). NO asumas ni inventes su contenido; indícale al técnico si necesitas que te describa lo que muestra la captura.]`;
             substantiveParts.push(`Evidencia adjunta sin análisis visual disponible: ${m.fileName || kind}`);
@@ -1193,14 +1298,14 @@ export async function POST(req: NextRequest) {
         transcriptLines.push(line);
       }
 
-      // Priorizar siempre los mensajes más recientes desde el final hacia atrás (máx ~9,500 chars)
-      // para que NINGÚN análisis extenso de fotos anteriores oculte los mensajes nuevos.
-      const MAX_CONV_CHARS = 9500;
+      // Priorizar siempre los mensajes más recientes desde el final hacia atrás (máx 14,000 chars)
+      // para conservar los mensajes recientes y los datos críticos de adjuntos anteriores.
+      const MAX_CONV_CHARS = 14000;
       const recentReversed: string[] = [];
       let convChars = 0;
-      for (let i = transcriptLines.length - 1; i >= 0 && recentReversed.length < 30; i--) {
+      for (let i = transcriptLines.length - 1; i >= 0 && recentReversed.length < 40; i--) {
         const candidate = transcriptLines[i];
-        if (recentReversed.length >= 6 && convChars + candidate.length + 2 > MAX_CONV_CHARS) {
+        if (recentReversed.length >= 8 && convChars + candidate.length + 2 > MAX_CONV_CHARS) {
           break;
         }
         recentReversed.push(candidate);
@@ -1209,10 +1314,25 @@ export async function POST(req: NextRequest) {
       const recentLines = recentReversed.reverse();
       const missingMediaLines = mediaTranscriptLines
         .filter((ml) => !recentLines.includes(ml))
-        .slice(-2)
-        .map((ml) => (ml.length > 500 ? `${ml.slice(0, 500)}...` : ml));
+        .slice(-3)
+        .map((ml) => (ml.length > 750 ? `${ml.slice(0, 750)}...` : ml));
       openCaseConversation = [...missingMediaLines, ...recentLines].join("\n\n");
-      substantiveOpenCaseText = substantiveParts.slice(-16).join("\n");
+      substantiveOpenCaseText = substantiveParts.slice(-20).join("\n");
+
+      const fullCaseTextCorpus = `${targetCase?.marca || ""} ${targetCase?.modelo || ""} ${clienteData?.modelo || ""} ${fullEvidenceParts.join("\n")}`;
+      detectedCaseModels = extractValidHardwareModels(fullCaseTextCorpus);
+      const has2CE = /\b(?:hik-)?ds-2ce\w*/i.test(fullCaseTextCorpus);
+      const hasAnalogSignals = /\b(?:ds-2ce|hik-ds-2ce|hqhi|hghi|huhi|xvr|an[aá]log[ao]|anal[oó]gica|coaxial|hdtvi|hdcvi|ahd|cvbs|5\s*in\s*1)\b/i.test(
+        fullCaseTextCorpus
+      );
+      const hasPureIpCam = /\b(?:ds-2cd|ipc-)\w*/i.test(fullCaseTextCorpus);
+      if (hasAnalogSignals && (has2CE || !hasPureIpCam)) {
+        isAnalogCoaxCase = true;
+        detectedArchitecture =
+          "Sistema Analógico / Turbo HD (DVR + cámara análoga coaxial HDTVI; NO tiene dirección IP ni aparece en SADP Tools ni tiene web propia — sus parámetros internos y reset de fábrica se operan vía menú OSD coaxial con Control PTZ desde el grabador)";
+      } else if (hasPureIpCam || /\b(?:ds-7[67]\d*ni|ds-71\d*ni|\bnvr\b)\b/i.test(fullCaseTextCorpus)) {
+        detectedArchitecture = "Sistema IP / NVR (red Ethernet, visible en SADP Tools / interfaz web IP)";
+      }
     }
 
     // ── 4. Si el técnico subió un archivo directamente en el widget del asistente ──
@@ -1327,6 +1447,7 @@ export async function POST(req: NextRequest) {
     const cleanModels = [
       ...new Set([
         ...extractValidHardwareModels(userQueryOnly),
+        ...detectedCaseModels,
         ...extractValidHardwareModels(`${targetCase?.modelo || ""} ${clienteData?.modelo || ""} ${primaryTopicText}`),
       ]),
     ];
@@ -1464,9 +1585,45 @@ export async function POST(req: NextRequest) {
       }
 
       // B) Selección de Casos Precedentes Resueltos en Sekunet
+      const isCurrentCaseCctv =
+        (activeFaultDomain === "video_imagen" ||
+          isAnalogCoaxCase ||
+          /\b(?:dvr|nvr|c[aá]mara|hqhi|ds-2c|blanco\s+y\s+negro|osd|wdr)\b/i.test(fullContextCorpus)) &&
+        activeFaultDomain !== "intercom_acceso_biometria";
+      const isImageOsdFault =
+        isAnalogCoaxCase ||
+        /blanco\s+y\s+negro|d[ií]a\s*\/?\s*noche|day\s*\/?\s*night|men[uú]\s+osd|wdr|luz\s+(?:blanca|h[ií]brida)|canal\s+anal[oó]gico/i.test(
+          primaryTopicText
+        );
+      const asksAboutDiskOrPassword =
+        /\b(?:disco\s+duro|hdd|sata|sin\s+grabaciones|archivo\s+xml|desvincular|olvid[oó]\s+la\s+contrase[ñn]a)\b/i.test(
+          `${userQueryOnly} ${substantiveOpenCaseText}`
+        );
+
       const scoredCases: { prec: IndexedPrecedent; score: number }[] = [];
       for (const p of precedents) {
         if (validCaseId && p.id === validCaseId) continue;
+
+        // Descartar precedentes de control de acceso / biometría en casos de CCTV/cámaras
+        if (
+          isCurrentCaseCctv &&
+          (p.primaryDomain === "intercom_acceso_biometria" ||
+            /\b(?:ds-k1t|biom[eé]tric|reloj\s+marcador|control\s+de\s+acceso|frente\s+de\s+calle|videoportero|llav[ií]n)\b/i.test(
+              `${p.equipmentLabel} ${p.faultSummary}`
+            ))
+        ) {
+          continue;
+        }
+
+        // En fallas de imagen / OSD / color de cámara, evitar arrastrar precedentes de disco duro o reset de contraseña salvo relación OSD/imagen
+        if (
+          isImageOsdFault &&
+          !asksAboutDiskOrPassword &&
+          (p.primaryDomain === "almacenamiento_grabacion" || p.primaryDomain === "reset_credenciales") &&
+          !/\b(?:osd|d[ií]a\/noche|day\/night|color|blanco\s+y\s+negro|wdr|ptz|c[aá]mara\s+an[aá]loga)\b/i.test(p.searchCorpus)
+        ) {
+          continue;
+        }
 
         let faultScore = 0;
 
@@ -1496,7 +1653,17 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        if (faultScore < 14 && matchedTokens === 0 && cleanModels.length === 0) continue;
+        let matchedExplicitModel = false;
+        const hardwareOnlyModels = cleanModels.filter((cm) => !/^(?:sadp|ivms|hitools|configtool)/.test(cm));
+        for (const cm of hardwareOnlyModels.slice(0, 3)) {
+          if (p.model.includes(cm) || p.searchCorpus.includes(cm)) {
+            matchedExplicitModel = true;
+            break;
+          }
+        }
+
+        // Nunca aceptar solo por coincidencia de marca si no hay coincidencia real de falla o modelo hardware
+        if (faultScore < 24 && !matchedExplicitModel) continue;
 
         let brandAndModelScore = 0;
         if (primaryBrand) {
@@ -1512,14 +1679,26 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        for (const cm of cleanModels.slice(0, 2)) {
+        for (const cm of hardwareOnlyModels.slice(0, 3)) {
           if (p.model.includes(cm) || p.searchCorpus.includes(cm)) {
-            brandAndModelScore += faultScore > 0 ? 45 : 25;
+            brandAndModelScore += faultScore > 0 ? 50 : 30;
           }
         }
 
-        const totalScore = faultScore + brandAndModelScore + (p.solutionText.length > 140 ? 10 : 0);
-        if (totalScore >= 32) {
+        // Afinidad analógica vs IP/NVR
+        let architectureDelta = 0;
+        if (isAnalogCoaxCase) {
+          const precHasAnalog = /\b(?:an[aá]log|coaxial|men[uú]\s+osd|\bosd\b|\bptz\b|hqhi|hghi|huhi|ds-2ce|hdtvi|blanco\s+y\s+negro|d[ií]a\s*\/?\s*noche|hybrid\s+light)\b/i.test(
+            p.searchCorpus
+          );
+          const precIsPureIpNvr = /\b(?:ds-2cd|ds-7[67]\d*ni|ds-71\d*ni|\bnvr\b)\b/i.test(`${p.equipmentLabel} ${p.searchCorpus}`);
+          if (precHasAnalog) architectureDelta += 45;
+          else if (precIsPureIpNvr) architectureDelta -= 55;
+        }
+
+        const totalScore = faultScore + brandAndModelScore + architectureDelta + (p.solutionText.length > 140 ? 10 : 0);
+        const minThreshold = primaryBrand ? 62 : 35;
+        if (totalScore >= minThreshold) {
           scoredCases.push({ prec: p, score: totalScore });
         }
       }
@@ -1539,15 +1718,28 @@ export async function POST(req: NextRequest) {
       console.warn("[tech-assistant] Error consultando índice completo de casos y manuales:", dbErr?.message);
     }
 
-    // ── 5.3. Búsqueda Web Técnica en Vivo alineada al Caso (SIEMPRE activa salvo saludo/comando trivial) ──
+    // ── 5.3. Búsqueda Web Técnica en Vivo alineada al Caso (SIEMPRE activa salvo saludo/corrección meta) ──
     let webContext = "";
     let retrievedWebResults: { title: string; url: string; snippet: string; kind: "oficial" | "foro" | "manual" }[] = [];
     const memoryToSave = !isDraftAction && typeof message === "string" ? detectMemorySaveIntent(message) : null;
     const isMetaMediaQuery =
       isDraftAction ||
+      isGenericDiagnosticPrompt ||
       /\b(redactar propuesta|propuesta de respuesta|basada en el caso|analizar caso|revisa la imagen|ultima foto|última foto|imagen final|que dice la foto|qué dice la foto|la captura)\b/i.test(
         userQueryOnly
       );
+    const hasSpecificTechAsk =
+      /(?:wdr|osd|ptz|formate|reset|restablec|blanco\s+y\s+negro|d[ií]a\s*\/?\s*noche|luz|ir\b|sadp|ip\b|puerto|firmware|disco|graba|c[aá]mara|grabador|men[uú])/i.test(
+        userQueryOnly
+      );
+    const isMetaCorrectionOnly =
+      !isDraftAction &&
+      !isGenericDiagnosticPrompt &&
+      userQueryOnly.trim().length > 0 &&
+      /\b(?:est[aá]\s+mal|mal\s+diagn[oó]stico|diagm?ostico.*mal|extraviado|perdido|no\s+entendiste|lee\s+el\s+chat|revisa\s+arriba|vuelve\s+a\s+leer|volv(?:amos|er)\s+al|no\s+es\s+(?:ip|eso)|est[aá]s\s+confundid[oa])\b/i.test(
+        userQueryOnly
+      ) &&
+      !hasSpecificTechAsk;
     const isPureMemoryCommand = Boolean(memoryToSave) && !activeFaultDomain && !primaryModel;
     const cleanForTrivialCheck = userQueryOnly.replace(/[?!.,\s]+/g, "").trim();
     const isTrivialGreeting =
@@ -1559,7 +1751,7 @@ export async function POST(req: NextRequest) {
       !primaryModel &&
       activeFaultTerms.length === 0;
 
-    if (!isPureMemoryCommand && !isTrivialGreeting) {
+    if (!isPureMemoryCommand && !isTrivialGreeting && !isMetaCorrectionOnly) {
       try {
         const topFaultTerms = activeFaultTerms.slice(0, 3).join(" ");
         const tokenHint = queryTokens.slice(0, 3).join(" ");
@@ -1571,14 +1763,31 @@ export async function POST(req: NextRequest) {
         const visionHintMatch = `${techMediaAnalysis} ${substantiveOpenCaseText}`.match(
           /(?:error[:\s-]*\w+|puerto\s+(?:http|sdk|rtsp)?[:\s]*\d+|unsupported\s+stream|connection\s+failed|offline|hitools|sadp|ivms)/i
         );
-        const visionHint = visionHintMatch ? visionHintMatch[0] : "";
+        let visionHint = visionHintMatch ? visionHintMatch[0] : "";
+        if (isAnalogCoaxCase && /^(?:sadp|hitools|ivms)$/i.test(visionHint) && !/\b(?:sadp|hitools|ivms)\b/i.test(userQueryOnly)) {
+          visionHint = "";
+        }
 
-        const subject =
-          !isMetaMediaQuery && cleanUserMsg.length > 8
-            ? cleanUserMsg
-            : [topFaultTerms || tokenHint, visionHint].filter(Boolean).join(" ").trim();
-        const baseQuery = `${primaryBrand} ${productLine} ${primaryModel} ${subject}`.replace(/\s+/g, " ").trim();
-        const queryForWeb = baseQuery.length >= 3 ? baseQuery : `${primaryBrand} ${primaryModel} manual configuracion`.trim();
+        const hardwareModelForWeb =
+          (isAnalogCoaxCase
+            ? cleanModels.find((cm) => /ds-2ce/i.test(cm)) || cleanModels.find((cm) => !/^(?:sadp|ivms|hitools)/.test(cm))
+            : cleanModels.find((cm) => !/^(?:sadp|ivms|hitools)/.test(cm))) || primaryModel;
+
+        let subject = "";
+        if (isAnalogCoaxCase && /formate|reset|restablec|valores\s+de\s+f[aá]brica/i.test(userQueryOnly)) {
+          subject = "menu OSD PTZ reset restablecer camara analoga DVR";
+        } else if (!isMetaMediaQuery && cleanUserMsg.length > 8) {
+          subject = isAnalogCoaxCase ? `${cleanUserMsg} menu OSD DVR camara analoga` : cleanUserMsg;
+        } else if (isAnalogCoaxCase) {
+          subject = "menu OSD PTZ camara analoga day night dvr";
+        } else {
+          subject = [topFaultTerms || tokenHint, visionHint].filter(Boolean).join(" ").trim();
+        }
+
+        const baseQuery = `${primaryBrand} ${isAnalogCoaxCase && productLine === "SADP" ? "" : productLine} ${hardwareModelForWeb} ${subject}`
+          .replace(/\s+/g, " ")
+          .trim();
+        const queryForWeb = baseQuery.length >= 3 ? baseQuery : `${primaryBrand} ${hardwareModelForWeb} manual configuracion`.trim();
 
         if (queryForWeb.length >= 3) {
           const officialQuery = `${queryForWeb} manual configuracion`;
@@ -1587,21 +1796,31 @@ export async function POST(req: NextRequest) {
 
           const [officialRes, forumRes] = await Promise.race([
             Promise.all([
-              searchTechnicalWeb(officialQuery, 4, false, primaryBrand, primaryModel, activeFaultDomain),
-              searchTechnicalWeb(forumQuery, 4, true, primaryBrand, primaryModel, activeFaultDomain),
+              searchTechnicalWeb(officialQuery, 4, false, primaryBrand, hardwareModelForWeb, activeFaultDomain),
+              searchTechnicalWeb(forumQuery, 4, true, primaryBrand, hardwareModelForWeb, activeFaultDomain),
             ]),
             new Promise<[any[], any[]]>((resolve) => setTimeout(() => resolve([[], []]), 5500)),
           ]);
 
+          const isOffTopicNvrForAnalog = (r: { title: string; url: string; snippet: string }): boolean => {
+            if (!isAnalogCoaxCase || /\bnvr\b/i.test(userQueryOnly)) return false;
+            const t = `${r.title} ${r.url} ${r.snippet}`;
+            return (
+              /(?:network\s+video\s+recorder|user\s+manual\s+of\s+network\s+video\s+recorder|ud04701b)/i.test(t) &&
+              !/\b(?:dvr|turbo\s*hd|hdtvi|an[aá]log|osd|ptz)\b/i.test(t)
+            );
+          };
+
           const seen = new Set<string>();
           const merged: typeof retrievedWebResults = [];
           const pushRes = (r: { title: string; url: string; snippet: string }) => {
+            if (isOffTopicNvrForAnalog(r)) return;
             const key = r.url.replace(/[#?].*$/, "").toLowerCase();
             if (seen.has(key)) return;
             seen.add(key);
             merged.push({ ...r, kind: classifyWebSource(r.url) });
           };
-          officialRes.slice(0, 2).forEach(pushRes);
+          officialRes.slice(0, 3).forEach(pushRes);
           forumRes.filter((r) => classifyWebSource(r.url) === "foro").slice(0, 2).forEach(pushRes);
           [...officialRes, ...forumRes].forEach((r) => merged.length < 4 && pushRes(r));
 
@@ -1669,15 +1888,28 @@ export async function POST(req: NextRequest) {
       return matchB - matchA;
     });
 
+    const clipBlock = (s: string, maxChars: number): string =>
+      s.length <= maxChars ? s : `${s.slice(0, maxChars).trimEnd()}...`;
+
+    const ragPromptBlock = ragContext ? `\n\nMANUALES OFICIALES EN BASE DE CONOCIMIENTO SEKUNET (RAG):\n${clipBlock(ragContext, 1400)}` : "";
+    const precedentsPromptBlock = historicalPrecedents
+      ? `\n\nPRECEDENTES HISTÓRICOS REALES RESUELTOS CON ÉXITO Y CONFIRMACIÓN DEL CLIENTE (SEKUNET):\n${clipBlock(historicalPrecedents, 1800)}`
+      : "";
+    const webPromptBlock = webContext
+      ? `\n\nBÚSQUEDA WEB EN VIVO (MANUALES OFICIALES, FICHAS TÉCNICAS Y FOROS ESPECIALIZADOS):\n${clipBlock(webContext, 1400)}`
+      : "";
     const memoriesBlock =
       prioritizedMemories.length > 0
-        ? `\n\nMEMORIA PERSISTENTE DEL EQUIPO SEKUNET (REGLAS Y APRENDIZAJES GUARDADOS):\n${prioritizedMemories
-            .slice(0, 30)
-            .map((m, idx) => `${idx + 1}. ${m.text}`)
-            .join("\n")}`
+        ? `\n\nMEMORIA PERSISTENTE DEL EQUIPO SEKUNET (REGLAS Y APRENDIZAJES GUARDADOS):\n${clipBlock(
+            prioritizedMemories
+              .slice(0, 30)
+              .map((m, idx) => `${idx + 1}. ${m.text}`)
+              .join("\n"),
+            1500
+          )}`
         : "";
     const clientHistoryBlock = clientPriorCasesText
-      ? `\n\nHISTORIAL PREVIO DE ESTE CLIENTE (MEMORIA AUTOMÁTICA):\n${clientPriorCasesText}`
+      ? `\n\nHISTORIAL PREVIO DE ESTE CLIENTE (MEMORIA AUTOMÁTICA):\n${clipBlock(clientPriorCasesText, 1000)}`
       : "";
     const personalityBlock = personalityCfg.customInstructions
       ? `\n\nINSTRUCCIONES PERSONALIZADAS DEL EQUIPO SEKUNET:\n${personalityCfg.customInstructions}${
@@ -1693,7 +1925,11 @@ export async function POST(req: NextRequest) {
 
     // ── 6. System Prompt Maestro del Asistente Técnico ──
     const equipoRegistrado = clienteData?.equipo || (targetCase?.marca ? `${targetCase.marca || ""} ${targetCase.modelo || ""}`.trim() : "");
-    const equipoLinea = equipoRegistrado || "No registrado formalmente (consulte la conversación y las fotos)";
+    const hardwareModelsDetected = detectedCaseModels.filter((m) => !/^(?:sadp|ivms|hitools|configtool)/.test(m));
+    const equipoLinea =
+      hardwareModelsDetected.length > 0
+        ? `${primaryBrand ? primaryBrand.toUpperCase() + " — " : ""}${hardwareModelsDetected.join(", ")}${equipoRegistrado ? ` (registro: ${equipoRegistrado})` : ""}`
+        : equipoRegistrado || "No registrado formalmente (consulte la conversación y las fotos)";
 
     const nowDateObj = new Date();
     const crHourNum = Number(
@@ -1705,6 +1941,35 @@ export async function POST(req: NextRequest) {
       dateStyle: "medium",
       timeStyle: "short",
     });
+
+    const detectedEvidenceBlock = [
+      hardwareModelsDetected.length > 0 ? `- Modelos de hardware detectados en el chat/adjuntos: ${hardwareModelsDetected.join(", ")}` : "",
+      detectedArchitecture ? `- Arquitectura confirmada del sistema: ${detectedArchitecture}` : "",
+      isAnalogCoaxCase
+        ? "- ADVERTENCIA CRÍTICA: La cámara análoga HDTVI NO tiene dirección IP ni aparece en SADP Tools; sus parámetros internos (Día/Noche, Luz Blanca/Híbrida, WDR, Restablecer/Reset de fábrica) se configuran entrando al menú OSD coaxial de la cámara mediante Control PTZ desde el grabador DVR."
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const rule3Section = isGenericDiagnosticPrompt
+      ? `3. ESTRUCTURA DE RESOLUCIÓN TÉCNICA (OBLIGATORIA al analizar el caso):
+   Responde con un Plan Técnico Resolutivo CONCISO, DIRECTO Y SIN RELLENO TEÓRICO en estas secciones (usa el título exacto seguido de dos puntos):
+   Falla y Causa Raíz:
+   Máximo 2 a 3 líneas directas indicando marca/modelo exacto, qué muestran las capturas o audios del cliente y la causa técnica puntual. Prohibido redactar párrafos largos de teoría.
+
+   Solución Comprobada en Taller / Documentada:
+   Máximo 2 líneas concretas indicando qué ajuste exacto resolvió esta falla en los precedentes de Sekunet, historial del cliente o manuales oficiales. Prohibido usar frases genéricas de relleno.
+
+   Procedimiento de Resolución (Paso a Paso):
+   Pasos técnicos cortos, directos y numerados (1., 2., 3.) con la ruta o menú exacto en el equipo o software de la marca para solucionar el problema de inmediato.
+
+   Instrucción Concreta para el Cliente:
+   Máximo 2 líneas directas con la prueba o confirmación puntual que se le debe indicar al cliente.`
+      : `3. RESPUESTA DIRECTA A LA PREGUNTA O CORRECCIÓN DEL TÉCNICO:
+   El técnico NO pidió un diagnóstico genérico repetitivo; hizo una pregunta puntual o señaló una corrección en el chat.
+   - Responde DIRECTA, EXACTA Y CONCISAMENTE a lo que preguntó o corrigió el técnico basándote en los últimos mensajes de <<<CONVERSACION_CASO_ACTUAL>>>.
+   - NO fuerces el molde rígido de 4 secciones si una explicación directa con pasos numerados claros (1., 2., 3.) responde mejor a su pregunta.`;
 
     let systemPrompt = `Eres el Asistente Técnico Senior de Sekunet, el copiloto experto para técnicos e ingenieros de soporte de CCTV, control de acceso, alarmas, redes y seguridad electrónica.
 
@@ -1719,19 +1984,16 @@ CONTEXTO DEL CASO ABIERTO EN PANTALLA (A QUIEN LE ESTAMOS DANDO SOPORTE):
 - Cuenta/Empresa: ${clienteData?.cuenta || "No registrada"}
 - Canal: ${targetCase?.canal || "WhatsApp"}
 - Estado actual: ${targetCase?.estado || "Sin caso específico"}
-- Dispositivo registrado: ${equipoLinea}
+- Dispositivo registrado / detectado: ${equipoLinea}
 ${activeDomainDef ? `- Categoría técnica detectada: ${activeDomainDef.label}` : ""}
+${detectedEvidenceBlock ? `\nEQUIPOS Y EVIDENCIAS DETECTADAS EN EL CHAT:\n${detectedEvidenceBlock}` : ""}${ragPromptBlock}${precedentsPromptBlock}${webPromptBlock}${clientHistoryBlock}${memoriesBlock}${liveToolsBlock}${personalityBlock}
 
-CONVERSACIÓN CRONOLÓGICA COMPLETA DEL CASO ABIERTO (con transcripciones y análisis de imágenes):
+<<<CONVERSACION_CASO_ACTUAL>>>
+CONVERSACIÓN CRONOLÓGICA COMPLETA DEL CASO ABIERTO (con transcripciones y análisis de imágenes — LEE HASTA EL ÚLTIMO MENSAJE):
 ${openCaseConversation || "No hay mensajes registrados en este caso."}
-${ragContext ? `\n\nMANUALES OFICIALES EN BASE DE CONOCIMIENTO SEKUNET (RAG):\n${ragContext}` : ""}
-${historicalPrecedents ? `\n\nPRECEDENTES HISTÓRICOS REALES RESUELTOS CON ÉXITO Y CONFIRMACIÓN DEL CLIENTE (SEKUNET):\n${historicalPrecedents}` : ""}
-${webContext ? `\n\nBÚSQUEDA WEB EN VIVO (MANUALES OFICIALES, FICHAS TÉCNICAS Y FOROS ESPECIALIZADOS):\n${webContext}` : ""}${clientHistoryBlock}${memoriesBlock}${liveToolsBlock}${personalityBlock}
+<<<FIN_CONVERSACION_CASO_ACTUAL>>>
 
 REGLAS DE ATENCIÓN TÉCNICA OBLIGATORIAS:
-0.1 PROHIBICIÓN ESTRICTA DE ASUMIR RADIOENLACES POR LA FRASE "PUNTO A PUNTO":
-Si en un caso de videoportero, intercomunicador, CCTV o control de acceso se menciona "punto a punto", se refiere a conexión cableada directa por red (LAN) entre dispositivos (ej. frente de calle directo a monitor interior sin pasar por switch). JAMÁS asumas ni menciones marcas de radioenlaces (como Ubiquiti, NanoStation o airMAX) a menos que la etiqueta o el cliente digan explícitamente antena o enlace inalámbrico. Lee siempre las marcas y modelos visibles en fotos y etiquetas adjuntas.
-
 0. REGLA SUPREMA DE AISLAMIENTO DE MARCA:
 La marca del caso abierto es: "${primaryBrand || "No especificada"}".
 Está TERMINANTEMENTE PROHIBIDO mezclar marcas o sugerir herramientas/procedimientos de otros fabricantes:
@@ -1739,21 +2001,22 @@ Está TERMINANTEMENTE PROHIBIDO mezclar marcas o sugerir herramientas/procedimie
 - Si el equipo es Simplex, JAMÁS menciones DSC, Paradox, Dahua ni Hikvision.
 - Si el equipo es Hikvision, JAMÁS menciones SmartPSS, DMSS ni ZKTeco.
 Toda recomendación técnica debe pertenecer con total exactitud a la marca del equipo del cliente. Si no tienes un procedimiento certero para esta marca, indícalo con honestidad en vez de inventar datos.
-1. MÁXIMA PRIORIDAD A RESOLVER LA AVERÍA: El técnico te consulta para encontrar la SOLUCIÓN EXACTA. Debes fundamentar tu diagnóstico y procedimiento en las soluciones reales comprobadas que los técnicos de Sekunet ya aplicaron con éxito y con confirmación explícita del cliente en los precedentes de taller Y en la información técnica oficial de manuales y fichas técnicas web. Todos los precedentes históricos [C1], [C2], etc. suministrados han sido rigurosamente auditados y cuentan con confirmación verificada del cliente de que el soporte brindado fue útil y resolutivo.
+
+0.1 PROHIBICIÓN ESTRICTA DE ASUMIR RADIOENLACES POR LA FRASE "PUNTO A PUNTO":
+Si en un caso de videoportero, intercomunicador, CCTV o control de acceso se menciona "punto a punto", se refiere a conexión cableada directa por red (LAN) entre dispositivos (ej. frente de calle directo a monitor interior sin pasar por switch). JAMÁS asumas ni menciones marcas de radioenlaces (como Ubiquiti, NanoStation o airMAX) a menos que la etiqueta o el cliente digan explícitamente antena o enlace inalámbrico. Lee siempre las marcas y modelos visibles en fotos y etiquetas adjuntas.
+
+0.2 DISTINCIÓN ESTRICTA ENTRE CÁMARAS ANÁLOGAS/HDTVI (DVR) Y CÁMARAS IP (NVR):
+- Los grabadores Hikvision serie iDS-72xxHQHI / HGHI / HUHI / DS-72xx son DVR Turbo HD (soportan cámaras análogas coaxiales HDTVI/HDCVI/AHD/CVBS + canales IP adicionales), y las cámaras DS-2CE... son ANÁLOGAS coaxiales.
+- Una cámara análoga coaxial NO tiene dirección IP, NO aparece en SADP Tools, NO tiene interfaz web propia y NO se "formatea" en Gestión de Cámaras IP.
+- Si el menú Imagen del DVR muestra "Modo día/noche: No soportado" o el técnico/cliente quiere configurar Luz Híbrida (Smart Hybrid Light), Modo Día/Noche, WDR o Restablecer (Reset de fábrica) de la cámara análoga: debe abrir en el DVR la Vista en Directo sobre el canal analógico correspondiente → abrir Control PTZ → presionar el botón Menú (Iris+ o llamar Preset 95) para entrar al menú OSD coaxial interno de la propia cámara → navegar con las flechas del PTZ para ajustar LIGHT / DAY-NIGHT / EXPOSURE o aplicar RESET / FACTORY DEFAULT y confirmar SAVE & EXIT.
+- Aclara explícitamente cuando pregunten dónde "formatear" en el menú del grabador: los grabadores solo formatean discos duros (en Almacenamiento / HDD), NO "formatean" cámaras; lo que se puede hacer en una cámara análoga es restablecer sus parámetros desde su menú OSD coaxial vía Control PTZ.
+
+0.3 FIDELIDAD ABSOLUTA AL CHAT ACTUAL Y DESCARTAR FUENTES IRRELEVANTES:
+Lee la conversación completa en <<<CONVERSACION_CASO_ACTUAL>>> desde el inicio hasta EL ÚLTIMO MENSAJE, incluyendo cualquier corrección del técnico (por ejemplo si el técnico dijo que se equivocó, que vuelvan al menú del grabador, o especificó que la cámara es análoga). Si un precedente [C#], manual [M#] o enlace web [W#] corresponde a otro tipo de equipo (por ejemplo un NVR o cámara IP cuando el caso trata una cámara análoga en DVR, o un biométrico en un caso de CCTV), IGNÓRALO POR COMPLETO y no lo menciones ni lo cites.
+
+1. MÁXIMA PRIORIDAD A RESOLVER LA AVERÍA: El técnico te consulta para encontrar la SOLUCIÓN EXACTA. Fundamenta tu respuesta en la conversación abierta real, las evidencias adjuntas, las soluciones comprobadas en casos previos del mismo cliente o taller cuando realmente apliquen, y procedimientos técnicos exactos de la marca.
 2. FOCO Y DESTINATARIO: Tu respuesta va dirigida ÚNICA Y EXCLUSIVAMENTE al caso y cliente abierto en pantalla. Nunca menciones nombres de clientes pasados.
-3. ESTRUCTURA DE RESOLUCIÓN TÉCNICA (OBLIGATORIA al pedir diagnóstico, análisis o solución):
-   Responde con un Plan Técnico Resolutivo CONCISO, DIRECTO Y SIN RELLENO TEÓRICO en estas secciones (usa el título exacto seguido de dos puntos):
-   Falla y Causa Raíz:
-   Máximo 2 a 3 líneas directas indicando marca/modelo exacto, qué muestran las capturas o audios del cliente y la causa técnica puntual. Prohibido redactar párrafos largos de teoría.
-
-   Solución Comprobada en Taller / Documentada:
-   Máximo 2 líneas concretas indicando qué ajuste exacto resolvió esta falla en los precedentes de Sekunet o manuales oficiales. Prohibido usar frases genéricas de relleno.
-
-   Procedimiento de Resolución (Paso a Paso):
-   Pasos técnicos cortos, directos y numerados (1., 2., 3.) con la ruta o menú exacto en el software o interfaz de la marca para solucionar el problema de inmediato.
-
-   Instrucción Concreta para el Cliente:
-   Máximo 2 líneas directas con la prueba o confirmación puntual que se le debe indicar al cliente.
+${rule3Section}
 4. NUNCA respondas que el cliente no tiene preguntas basándote en un último mensaje de cortesía. Todo el historial del caso contiene la avería.
 5. PROHIBICIÓN TOTAL DE OFRECER IMÁGENES O PREGUNTAR QUÉ CAPTURA ENVIAR:
 Eres una IA de texto. Eres COMPLETAMENTE INCAPAZ de generar, enviar o preparar imágenes o capturas de pantalla.
@@ -1768,7 +2031,7 @@ REGLAS ESTRICTAS DE FORMATO Y ESTILO (OBLIGATORIAS):
 - PROHIBIDO EL USO DE ENCABEZADOS MARKDOWN: No uses símbolos de almohadilla (#, ##, ###) ni líneas de separación (--- o ___).
 - VIÑETAS DECENTES: Si vas a enlistar puntos, usa viñetas sencillas con punto ("• ") de un solo nivel. Usa pasos numerados (1., 2., 3.) para procedimientos secuenciales.
 - NO escribas corchetes [C1], [M1] ni [W1] dentro de los párrafos del cuerpo de tu respuesta.
-- CITACIÓN SELECTIVA Y VERIFICABLE AL FINAL: Al final de tu respuesta, escribe una última línea que inicie con "Fuentes consultadas:" e incluye las etiquetas ([C1], [C2], [M1], [W1], etc.) de las fuentes suministradas arriba que hayas utilizado para fundamentar tu diagnóstico.`;
+- CITACIÓN SELECTIVA Y VERIFICABLE AL FINAL: Si realmente usaste alguna de las fuentes [M#], [C#] o [W#] pertinentes arriba para resolver este caso, escribe una última línea que inicie con "Fuentes consultadas:" citando únicamente las etiquetas pertinentes que sí aplican (nunca cites fuentes de NVR/IP/otros equipos que descartaste).`;
 
     if (!isDraftAction && validCaseId) {
       systemPrompt += `\n\nACCIONES DIRECTAS SOBRE EL CASO (ÚSALAS SOLO SI EL TÉCNICO LO PIDE EXPLÍCITAMENTE):
@@ -1811,7 +2074,7 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
         console.log(`[tech-assistant] Respuesta generada exitosamente con ${aiGen.provider}/${aiGen.modelo}`);
       } else {
         // Reintento ultraligero con contexto reducido si la cadena completa agotó tiempo
-        const compactSystem = `Eres el Asistente Técnico Senior de Sekunet. Responde de forma directa, técnica y sin asteriscos al técnico sobre este caso (${equipoLinea}):\n\n${openCaseConversation.slice(-3500)}`;
+        const compactSystem = `Eres el Asistente Técnico Senior de Sekunet. Responde de forma directa, técnica y sin asteriscos al técnico sobre este caso (${equipoLinea}).${detectedArchitecture ? `\nArquitectura: ${detectedArchitecture}` : ""}\n\n${openCaseConversation.slice(-6000)}`;
         const retryGen = await generateText("chat", {
           system: compactSystem,
           messages: [{ role: "user", content: userQueryOnly || message }],
@@ -1888,10 +2151,12 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
       .replace(/\s*\[(?:C|M|W)\d+\]/g, "")
       .trim();
 
-    // Detectar qué etiquetas específicas ([C1], [M1], [W1]) seleccionó la IA, o incluir las mejores encontradas si omitió las etiquetas
+    // Detectar qué etiquetas específicas ([C1], [M1], [W1]) seleccionó la IA para mostrar solo fuentes pertinentes
     const aiCitedM = new Set([...aiSourcesRaw.matchAll(/\[?M(\d+)\]?/gi)].map((m) => Number(m[1]) - 1));
     const aiCitedC = new Set([...aiSourcesRaw.matchAll(/\[?C(\d+)\]?/gi)].map((m) => Number(m[1]) - 1));
     const aiCitedW = new Set([...aiSourcesRaw.matchAll(/\[?W(\d+)\]?/gi)].map((m) => Number(m[1]) - 1));
+    const hasExplicitCitations = aiCitedM.size > 0 || aiCitedC.size > 0 || aiCitedW.size > 0;
+    const allowAutoFallbackSources = isGenericDiagnosticPrompt && !isMetaCorrectionOnly && !hasExplicitCitations;
 
     const finalSources: string[] = [];
 
@@ -1899,17 +2164,17 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
     let mOutIdx = 1;
     retrievedKbDocs.forEach((kd, idx) => {
       const matchBrand = !primaryBrand || kd.doc_name.toLowerCase().includes(primaryBrand);
-      if ((aiCitedM.has(idx) || aiCitedM.size === 0) && matchBrand) {
+      if ((aiCitedM.has(idx) || (allowAutoFallbackSources && idx === 0)) && matchBrand) {
         const safeDoc = kd.doc_name.replace(/[()]/g, "").trim();
         finalSources.push(`[M${mOutIdx++}] Manual Oficial: ${safeDoc} (Base de conocimiento Sekunet)`);
       }
     });
 
-    // 2. Casos Precedentes Reales de Sekunet (correspondientes a la marca)
+    // 2. Casos Precedentes Reales de Sekunet (solo si fueron explícitamente citados por la IA)
     let cOutIdx = 1;
     topPrecedents.forEach((mc, idx) => {
       const matchBrand = !primaryBrand || mc.equipmentLabel.toLowerCase().includes(primaryBrand) || mc.brand.toLowerCase().includes(primaryBrand);
-      if ((aiCitedC.has(idx) || aiCitedC.size === 0) && matchBrand) {
+      if (aiCitedC.has(idx) && matchBrand) {
         const cleanDetails = `${mc.equipmentLabel} - ${mc.faultSummary}`.replace(/[()]/g, "").trim();
         finalSources.push(`[C${cOutIdx++}] Caso Sekunet #${mc.shortId} resuelto por ${mc.resolverName} (${cleanDetails})`);
       }
@@ -1919,7 +2184,7 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
     let wOutIdx = 1;
     retrievedWebResults.forEach((wr, idx) => {
       const matchBrand = !primaryBrand || wr.title.toLowerCase().includes(primaryBrand) || wr.url.toLowerCase().includes(primaryBrand);
-      if ((aiCitedW.has(idx) || (aiCitedW.size === 0 && idx < 2)) && matchBrand) {
+      if ((aiCitedW.has(idx) || (allowAutoFallbackSources && idx < 2)) && matchBrand) {
         const safeTitle = wr.title.replace(/[()]/g, "").replace(/\s+/g, " ").trim();
         finalSources.push(`[W${wOutIdx++}] ${safeTitle} (${wr.url})`);
       }
@@ -1927,13 +2192,6 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
 
     if (validCaseId) {
       finalSources.push("Conversación del caso actual");
-    }
-
-    if (!isDraftAction && validCaseId) {
-      systemPrompt += `\n\nACCIONES DIRECTAS SOBRE EL CASO (ÚSALAS SOLO SI EL TÉCNICO LO PIDE EXPLÍCITAMENTE):
-- Si el técnico te pide explícitamente agregar/guardar una nota interna en el caso, incluye al final una línea exacta: [ACCION_CASO: {"type":"add_note","noteText":"texto de la nota"}]
-- Si el técnico te pide explícitamente actualizar/corregir la marca o modelo del caso, incluye al final: [ACCION_CASO: {"type":"update_equipment","marca":"Marca","modelo":"Modelo"}]
-- Nunca emitas [ACCION_CASO: ...] si el técnico no pidió modificar el caso.`;
     }
 
     if (isDraftAction) {
