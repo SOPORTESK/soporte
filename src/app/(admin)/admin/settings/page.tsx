@@ -1,6 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { createServiceClient } from "@/lib/supabase/service";
-import { cacheGet, cacheSet } from "@/lib/supabase/cache";
+import { getRequireElectronSetting } from "@/lib/require-electron";
 import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
 import { redirect } from "next/navigation";
 import { DangerZonePanel } from "@/components/admin/danger-zone-panel";
@@ -75,38 +74,7 @@ export default async function AdminSettingsPage() {
       null,
       30000
     ),
-    (async () => {
-      try {
-        const svc = createServiceClient();
-        const result = await Promise.race([
-          svc
-            .from("sek_app_settings")
-            .select("value")
-            .eq("key", "require_electron_desktop_app")
-            .maybeSingle(),
-          new Promise<{ data: null; error: { message: string } }>((resolve) =>
-            setTimeout(() => resolve({ data: null, error: { message: "timeout" } }), 5000)
-          ),
-        ]);
-        if (result.error) throw new Error(result.error.message);
-        let enabled = false;
-        if (result.data?.value) {
-          try {
-            enabled = Boolean(JSON.parse(result.data.value).enabled);
-          } catch {
-            enabled = result.data.value === "true";
-          }
-        }
-        cacheSet("require_electron_desktop_app", enabled);
-        return { data: enabled, error: null };
-      } catch (err: any) {
-        const cached = cacheGet("require_electron_desktop_app");
-        return {
-          data: typeof cached === "boolean" ? cached : false,
-          error: err?.message || "error",
-        };
-      }
-    })(),
+    getRequireElectronSetting().then((data) => ({ data, error: null })),
     queryWithFallback(
       "settings_open_cases_count",
       async () => {

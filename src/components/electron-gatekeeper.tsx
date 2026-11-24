@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Image from "next/image";
+import { usePathname } from "next/navigation";
 import { Download, Monitor, ShieldAlert, CheckCircle2, ArrowRight, ExternalLink } from "lucide-react";
 
 interface ElectronGatekeeperProps {
@@ -10,6 +11,7 @@ interface ElectronGatekeeperProps {
 }
 
 export function ElectronGatekeeper({ requireElectron, userRole }: ElectronGatekeeperProps) {
+  const pathname = usePathname();
   const [isBlocked, setIsBlocked] = useState<boolean>(false);
   const [downloadStarted, setDownloadStarted] = useState<boolean>(false);
 
@@ -47,19 +49,35 @@ export function ElectronGatekeeper({ requireElectron, userRole }: ElectronGateke
     setIsBlocked(Boolean(requireElectron));
 
     let active = true;
-    fetch("/api/admin/require-electron?fresh=1", { cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (active && data && typeof data.require_electron === "boolean") {
-          setIsBlocked(data.require_electron);
-        }
-      })
-      .catch(() => {});
+    const checkLive = () => {
+      fetch("/api/admin/require-electron?fresh=1", { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (active && data && typeof data.require_electron === "boolean") {
+            setIsBlocked(data.require_electron);
+          }
+        })
+        .catch(() => {});
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        checkLive();
+      }
+    };
+
+    checkLive();
+    window.addEventListener("focus", checkLive);
+    document.addEventListener("visibilitychange", handleVisibility);
+    const intervalId = setInterval(checkLive, 15000);
 
     return () => {
       active = false;
+      window.removeEventListener("focus", checkLive);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      clearInterval(intervalId);
     };
-  }, [requireElectron, userRole]);
+  }, [requireElectron, userRole, pathname]);
 
   if (!isBlocked) return null;
 

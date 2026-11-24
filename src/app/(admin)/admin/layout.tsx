@@ -19,6 +19,7 @@ import { FloatingTechAssistant } from "@/components/floating-tech-assistant";
 import { ActivityTrackerProvider } from "@/components/activity-tracker-provider";
 import { ElectronReminderListener } from "@/components/agenda/electron-reminder-listener";
 import { ElectronGatekeeper } from "@/components/electron-gatekeeper";
+import { getRequireElectronSetting } from "@/lib/require-electron";
 import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
 import { getAgentGroupPermissions } from "@/lib/permissions";
 import { SidebarUserPanel } from "@/components/sidebar-user-panel";
@@ -76,27 +77,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       [],
       15000 // 15s TTL
     ),
-    queryWithFallback(
-      "require_electron_desktop_app",
-      async () => {
-        const { data, error } = await supabase
-          .from("sek_app_settings")
-          .select("value")
-          .eq("key", "require_electron_desktop_app")
-          .maybeSingle();
-        let enabled = false;
-        if (data?.value) {
-          try {
-            enabled = Boolean(JSON.parse(data.value).enabled);
-          } catch {
-            enabled = data.value === "true";
-          }
-        }
-        return { data: enabled, error };
-      },
-      false,
-      30000 // 30s TTL
-    ),
+    getRequireElectronSetting().then((data) => ({ data, error: null })),
   ]);
 
   let agent = agentResult.data;
