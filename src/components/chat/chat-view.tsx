@@ -12,13 +12,13 @@ import {
   FileArchive, FileCode, FileSpreadsheet, Eye, ShieldCheck, Cpu, Plus, Ticket, Briefcase, Ban
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { subscribeCasesRealtime, emitCaseBroadcastClient } from "@/lib/cases-realtime-bus";
+import { subscribeCasesRealtime, emitCaseBroadcastClient, isUserActivelyViewing } from "@/lib/cases-realtime-bus";
 import { toCachedMediaUrl } from "@/lib/media-proxy";
 import { logActivity } from "@/lib/activity-client";
 import { Avatar, Badge } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { cn, formatTime, formatFullTime, asText, clienteInfo, isInvalidVendorStr, isWorkHoursCR } from "@/lib/utils";
+import { cn, formatTime, formatFullTime, asText, clienteInfo, isInvalidVendorStr } from "@/lib/utils";
 import { toast } from "sonner";
 import { CaseHistoryDrawer } from "./case-history-drawer";
 import { TemplateManager } from "./template-manager";
@@ -190,6 +190,52 @@ const caseHistoryCache = new Map<string, { sekCase: SekCase; timestamp: number }
 const inflightHistoryRequests = new Map<string, Promise<SekCase | null>>();
 const autoExtractedCases = new Set<string>();
 
+const toEpochMs = (v: unknown): number => {
+  if (!v) return 0;
+  const t = new Date(String(v)).getTime();
+  return isNaN(t) ? 0 : t;
+};
+
+const openIdsSignature = (list?: Array<string | number>): string =>
+  Array.isArray(list) ? list.map(String).sort().join(",") : "";
+
+function isCaseCacheFresh(
+  cached: { sekCase: SekCase; timestamp: number } | undefined,
+  baseCase: SekCase
+): cached is { sekCase: SekCase; timestamp: number } {
+  if (!cached) return false;
+  if (Date.now() - cached.timestamp >= CASE_CACHE_TTL_MS) return false;
+  if (toEpochMs(cached.sekCase.last_message_at) < toEpochMs(baseCase.last_message_at)) return false;
+  if (toEpochMs((cached.sekCase as any).updated_at) < toEpochMs((baseCase as any).updated_at)) return false;
+  if (
+    baseCase._group?.openCaseIds &&
+    openIdsSignature(cached.sekCase._group?.openCaseIds) !== openIdsSignature(baseCase._group.openCaseIds)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function invalidateCaseHistoryCache(caseId?: string): void {
+  if (!caseId) {
+    caseHistoryCache.clear();
+    return;
+  }
+  const cidStr = String(caseId);
+  caseHistoryCache.delete(cidStr);
+  for (const [k, entry] of Array.from(caseHistoryCache.entries())) {
+    const c = entry.sekCase;
+    if (
+      String(c.id) === cidStr ||
+      String(c._group?.targetCaseId || "") === cidStr ||
+      c._group?.caseIds?.some((id) => String(id) === cidStr) ||
+      c._group?.openCaseIds?.some((id) => String(id) === cidStr)
+    ) {
+      caseHistoryCache.delete(k);
+    }
+  }
+}
+
 function buildMergedCaseStatic(baseCase: SekCase, casesData: SekCase[]): SekCase {
   const sorted = [...casesData].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   const targetId2 = baseCase._group?.targetCaseId ?? baseCase.id;
@@ -233,15 +279,17 @@ function buildMergedCaseStatic(baseCase: SekCase, casesData: SekCase[]): SekCase
   } as unknown as SekCase;
 }
 
-export function prefetchCaseHistory(supabase: any, baseCase: SekCase): Promise<SekCase | null> {
+export function prefetchCaseHistory(supabase: any, baseCase: SekCase, force = false): Promise<SekCase | null> {
   if (!baseCase) return Promise.resolve(null);
   const cacheKey = String(baseCase._group?.targetCaseId || baseCase.id);
   const cached = caseHistoryCache.get(cacheKey);
-  if (cached && (Date.now() - cached.timestamp < CASE_CACHE_TTL_MS)) {
+  if (!force && isCaseCacheFresh(cached, baseCase)) {
     return Promise.resolve(cached.sekCase);
   }
-  const inflight = inflightHistoryRequests.get(cacheKey);
-  if (inflight) return inflight;
+  if (!force) {
+    const inflight = inflightHistoryRequests.get(cacheKey);
+    if (inflight) return inflight;
+  }
 
   const p = (async () => {
     try {
@@ -885,13 +933,13 @@ export function ChatView({
   React.useEffect(() => { initialCaseRef.current = initialCase; }, [initialCase]);
   const sekCaseRef = React.useRef(sekCase);
   React.useEffect(() => { sekCaseRef.current = sekCase; }, [sekCase]);
+  const initialCaseOpenIdsKey = openIdsSignature(initialCase._group?.openCaseIds);
   React.useEffect(() => {
     const cached = caseHistoryCache.get(cacheKey);
-    if (cached && (Date.now() - cached.timestamp < CASE_CACHE_TTL_MS)) {
+    if (isCaseCacheFresh(cached, initialCase)) {
       setSekCase(cached.sekCase);
       historyLoadedRef.current = true;
-    } else {
-      historyLoadedRef.current = false;
+    } else if (!historyLoadedRef.current) {
       setSekCase(initialCase);
     }
   }, [initialCase?.id, cacheKey]);
@@ -926,32 +974,35 @@ export function ChatView({
     return merged;
   }, [supabase, buildMergedCase]);
 
-  /* Cargar historial completo si el caso llegó en modo ligero (sin histcliente/histtecnico) */
+  /* Cargar historial completo si el caso llegó en modo ligero o si initialCase reporta cambios más recientes */
   React.useEffect(() => {
     let mounted = true;
     const cached = caseHistoryCache.get(cacheKey);
-    const isCacheUpToDate =
-      cached &&
-      Date.now() - cached.timestamp < CASE_CACHE_TTL_MS &&
-      (!initialCase.last_message_at ||
-        String(cached.sekCase.last_message_at || "") >= String(initialCase.last_message_at)) &&
-      (!initialCase.updated_at ||
-        String((cached.sekCase as any).updated_at || "") >= String(initialCase.updated_at));
+    const curStateFresh =
+      historyLoadedRef.current &&
+      toEpochMs(sekCaseRef.current.last_message_at) >= toEpochMs(initialCase.last_message_at) &&
+      toEpochMs((sekCaseRef.current as any).updated_at) >= toEpochMs((initialCase as any).updated_at) &&
+      (!initialCase._group?.openCaseIds ||
+        openIdsSignature(sekCaseRef.current._group?.openCaseIds) === initialCaseOpenIdsKey);
 
-    if (isCacheUpToDate && cached) {
+    if (curStateFresh) {
+      return;
+    }
+
+    if (isCaseCacheFresh(cached, initialCase)) {
       setSekCase(cached.sekCase);
       historyLoadedRef.current = true;
       return;
     }
 
-    prefetchCaseHistory(supabase, initialCase).then((merged) => {
+    prefetchCaseHistory(supabase, initialCase, true).then((merged) => {
       if (mounted && merged) {
         setSekCase(merged);
         historyLoadedRef.current = true;
       }
     });
     return () => { mounted = false; };
-  }, [cacheKey, supabase, initialCase?.id, initialCase._group?.targetCaseId]);
+  }, [cacheKey, supabase, initialCase?.id, initialCase._group?.targetCaseId, initialCase.last_message_at, (initialCase as any).updated_at, initialCaseOpenIdsKey]);
 
   /* Cargar plantillas */
   React.useEffect(() => {
@@ -1176,16 +1227,28 @@ export function ChatView({
        como para el polling activo y los eventos de visibilidad. */
     let pollInFlight = false;
     let lastGroupMetaHash = (sekCaseRef.current as any)?._groupMetaHash || "";
-    let lastPollAt = Date.now();
+    let lastPollAt = 0;
     const doPoll = async (forceFullFetch = false) => {
       if (pollInFlight || !mounted) return;
-      if (!forceFullFetch && Date.now() - lastPollAt < 5000) return;
+      if (!forceFullFetch && Date.now() - lastPollAt < 3500) return;
       pollInFlight = true;
       lastPollAt = Date.now();
       try {
-        const pollGroupIds = initialCaseRef.current._group?.openCaseIds?.length
-          ? initialCaseRef.current._group.openCaseIds.slice(-3)
-          : (initialCaseRef.current._group?.caseIds?.length ? initialCaseRef.current._group.caseIds.slice(-3) : [targetId]);
+        const mergedOpenIds = Array.from(
+          new Set([
+            ...(initialCaseRef.current._group?.openCaseIds || []),
+            ...(sekCaseRef.current._group?.openCaseIds || []),
+          ].map(String))
+        );
+        const fallbackGroupIds = Array.from(
+          new Set([
+            ...(initialCaseRef.current._group?.caseIds || []),
+            ...(sekCaseRef.current._group?.caseIds || []),
+          ].map(String))
+        );
+        const pollGroupIds = mergedOpenIds.length
+          ? mergedOpenIds.slice(-4)
+          : (fallbackGroupIds.length ? fallbackGroupIds.slice(-4) : [targetId]);
         if (isGrouped && pollGroupIds.length) {
           // Chequeo ultraliviano de metadatos si no es forzado (~100 bytes en vez de megabytes)
           if (!forceFullFetch) {
@@ -1194,18 +1257,18 @@ export function ChatView({
               .select("id,last_message_at,updated_at,estado,assigned_to")
               .in("id", pollGroupIds);
             if (meta && mounted) {
-              const metaHash = meta.map((m: any) => `${m.id}:${m.last_message_at || ""}:${m.updated_at || ""}:${m.estado || ""}`).sort().join("|");
+              const metaHash = meta.map((m: any) => `${m.id}:${toEpochMs(m.last_message_at)}:${toEpochMs(m.updated_at)}:${m.estado || ""}`).sort().join("|");
               const prevHash = lastGroupMetaHash || (sekCaseRef.current as any)?._groupMetaHash;
               if (prevHash && prevHash === metaHash) {
                 // Sin cambios: evitar descargar historial repetido (cero Egress)
                 return;
               }
               if (!prevHash && historyLoadedRef.current) {
-                const curLastMsg = String(sekCaseRef.current?.last_message_at || "");
-                const curUpdated = String((sekCaseRef.current as any)?.updated_at || "");
+                const curLastMsg = toEpochMs(sekCaseRef.current?.last_message_at);
+                const curUpdated = toEpochMs((sekCaseRef.current as any)?.updated_at);
                 const hasNewerOnServer = meta.some((m: any) =>
-                  (m.last_message_at && String(m.last_message_at) > curLastMsg) ||
-                  (m.updated_at && curUpdated && String(m.updated_at) > curUpdated)
+                  toEpochMs(m.last_message_at) > curLastMsg ||
+                  (curUpdated > 0 && toEpochMs(m.updated_at) > curUpdated)
                 );
                 lastGroupMetaHash = metaHash;
                 (sekCaseRef.current as any)._groupMetaHash = metaHash;
@@ -1225,7 +1288,7 @@ export function ChatView({
             .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,marca,modelo,problema,resolucion,title")
             .in("id", pollGroupIds);
           if (data && mounted) {
-            const merged = buildMergedCase(initialCaseRef.current, data as SekCase[]);
+            const merged = buildMergedCase(sekCaseRef.current._group ? sekCaseRef.current : initialCaseRef.current, data as SekCase[]);
             if (lastGroupMetaHash) {
               (merged as any)._groupMetaHash = lastGroupMetaHash;
             }
@@ -1246,10 +1309,10 @@ export function ChatView({
 
           const cur = sekCaseRef.current;
           const isIdentical =
-            cur.last_message_at === meta.last_message_at &&
+            toEpochMs(cur.last_message_at) === toEpochMs(meta.last_message_at) &&
             cur.estado === meta.estado &&
             cur.assigned_to === meta.assigned_to &&
-            (cur as any).updated_at === meta.updated_at;
+            toEpochMs((cur as any).updated_at) === toEpochMs(meta.updated_at);
 
           if (isIdentical) {
             // Nada cambió en la base de datos: evitar descargar histcliente/histtecnico (cero Egress)
@@ -1292,7 +1355,9 @@ export function ChatView({
                 (c.estado || "") + "|" + (c.assigned_to || "");
             };
             const merged = { ...prev, ...update };
-            return hashOf(prev) === hashOf(merged) ? prev : merged;
+            if (hashOf(prev) === hashOf(merged)) return prev;
+            caseHistoryCache.set(cacheKey, { sekCase: merged, timestamp: Date.now() });
+            return merged;
           });
           // Marcar mensajes del cliente sin read_at como leídos (solo si hay mensajes sin leer)
           const hasUnread = Array.isArray(data.histcliente) && data.histcliente.some((m: any) => !m.read_at);
@@ -1366,8 +1431,14 @@ export function ChatView({
               (newPhone === ownPhone || (newPhone.length >= 8 && ownPhone.endsWith(newPhone.slice(-8))) || (ownPhone.length >= 8 && newPhone.endsWith(ownPhone.slice(-8))))
             );
             if (sameCustomer) {
-              if (sekCaseRef.current?._group?.caseIds && !sekCaseRef.current._group.caseIds.some((id: any) => String(id) === rowId)) {
-                sekCaseRef.current._group.caseIds = [...sekCaseRef.current._group.caseIds, rowId];
+              for (const g of [sekCaseRef.current?._group, initialCaseRef.current?._group]) {
+                if (!g) continue;
+                if (Array.isArray(g.caseIds) && !g.caseIds.some((id: any) => String(id) === rowId)) {
+                  g.caseIds = [...g.caseIds, rowId];
+                }
+                if (Array.isArray(g.openCaseIds) && !g.openCaseIds.some((id: any) => String(id) === rowId)) {
+                  g.openCaseIds = [...g.openCaseIds, rowId];
+                }
               }
               doPoll(true);
             }
@@ -1514,12 +1585,11 @@ export function ChatView({
       .subscribe();
     presenceChannelRef.current = presenceCh;
 
-    /* Polling activo de respaldo cada 20s (solo pestaña visible y en horario laboral, chequeo liviano de ~80 bytes) */
+    /* Polling activo de respaldo cada 8s (solo mientras el usuario está viendo activamente la pestaña, chequeo liviano de ~120 bytes) */
     const poll = setInterval(() => {
-      if (!isWorkHoursCR()) return;
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (!isUserActivelyViewing()) return;
       doPoll();
-    }, 20000);
+    }, 8000);
 
     /* Refetch al volver a la pestaña (pasa por el chequeo liviano de ~80 bytes) */
     const handleVisibility = () => {

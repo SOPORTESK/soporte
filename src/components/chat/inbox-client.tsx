@@ -2,13 +2,13 @@
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { subscribeCasesRealtime } from "@/lib/cases-realtime-bus";
+import { subscribeCasesRealtime, isUserActivelyViewing } from "@/lib/cases-realtime-bus";
 import type { SekCase, SekHistEntry } from "@/lib/types";
 import { ConversationList } from "./conversation-list";
-import { ChatView } from "./chat-view";
+import { ChatView, invalidateCaseHistoryCache } from "./chat-view";
 import { Inbox as InboxIcon, Crown } from "lucide-react";
 import { toast } from "sonner";
-import { clienteInfo, asText, customerKey, isWorkHoursCR } from "@/lib/utils";
+import { clienteInfo, asText, customerKey } from "@/lib/utils";
 
 /* ── Filtrar casos según el tipo de contenedor ── */
 function filterCasesByContainer(
@@ -185,11 +185,22 @@ const BASE_TITLE = "Chat Sekunet - Atención al cliente";
 // Las notificaciones de mensajes nuevos usan unread_count y last_message_at.
 const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone,es_test";
 
+const toEpochMs = (v: unknown): number => {
+  if (!v) return 0;
+  const t = new Date(String(v)).getTime();
+  return isNaN(t) ? 0 : t;
+};
+
 function getMaxUpdatedAt(list: SekCase[]): string {
   let max = "";
+  let maxMs = 0;
   if (!Array.isArray(list)) return max;
   for (const c of list) {
-    if (c?.updated_at && c.updated_at > max) max = c.updated_at;
+    const ms = toEpochMs(c?.updated_at);
+    if (ms > maxMs && c?.updated_at) {
+      maxMs = ms;
+      max = c.updated_at;
+    }
   }
   return max;
 }
@@ -722,6 +733,7 @@ export function InboxClient({
               if (ev.eventType === "INSERT") {
                 const ins = ev.new as SekCase;
                 const insId = String(ev.caseId || ins?.id || "");
+                if (insId) invalidateCaseHistoryCache(insId);
                 if (ins && ins.canal !== "simulator" && !(ins as any).es_test) {
                   if (ins.id) {
                     nextAll = [ins, ...nextAll.filter(c => String(c.id) !== String(ins.id))];
@@ -735,6 +747,7 @@ export function InboxClient({
               } else if (ev.eventType === "UPDATE") {
                 const upd = (ev.new || {}) as SekCase;
                 const targetCid = String(ev.caseId || upd.id || "");
+                if (targetCid) invalidateCaseHistoryCache(targetCid);
                 if (targetCid && upd.canal !== "simulator" && !(upd as any).es_test) {
                   if (ev.action === "refresh_history") {
                     // refresh_history llega sin campos escalares nuevos; recargar metadata de ese caso
@@ -751,7 +764,12 @@ export function InboxClient({
                     }
                   }
                   if (idx !== -1) {
-                    nextAll[idx] = { ...nextAll[idx], ...upd, ...deltaPatch };
+                    const existingUpdatedAt = nextAll[idx].updated_at;
+                    const safeUpd: Record<string, any> = { ...upd };
+                    if (existingUpdatedAt && toEpochMs(upd.updated_at) <= toEpochMs(existingUpdatedAt)) {
+                      safeUpd.updated_at = existingUpdatedAt;
+                    }
+                    nextAll[idx] = { ...nextAll[idx], ...safeUpd, ...deltaPatch };
                   } else if (upd.id && upd.canal && upd.estado) {
                     nextAll = [{ ...upd, ...deltaPatch } as SekCase, ...nextAll];
                   } else {
@@ -967,7 +985,7 @@ export function InboxClient({
                     return tB - tA;
                   });
                   const fetchedMax = getMaxUpdatedAt(valid);
-                  if (fetchedMax && fetchedMax > lastKnownMaxUpdatedAtRef.current) {
+                  if (fetchedMax && toEpochMs(fetchedMax) > toEpochMs(lastKnownMaxUpdatedAtRef.current)) {
                     lastKnownMaxUpdatedAtRef.current = fetchedMax;
                   }
 
@@ -1017,30 +1035,33 @@ export function InboxClient({
     );
 
     /* Refetch silencioso: reutilizado por polling y por focus/visibility */
-    let lastRefetch = Date.now();
+    let lastRefetch = 0;
     const doRefetch = async (force = false) => {
       // 1. Si la pestaña está oculta en segundo plano y no es forzado, no ejecutar (0 bytes en segundo plano)
       if (typeof document !== "undefined" && document.visibilityState === "hidden" && !force) return;
 
-      if (!force && Date.now() - lastRefetch < 3000) return; // throttle corto de 3s (chequeo liviano de 60 bytes)
+      if (!force && Date.now() - lastRefetch < 2500) return; // throttle corto de 2.5s (chequeo liviano de ~100 bytes)
       lastRefetch = Date.now();
       try {
         if (containerType === "mi-gestion" && !agentEmail) return;
 
-        // 2. Chequeo ultraliviano (~60 bytes) antes de descargar la lista:
+        // 2. Chequeo ultraliviano (~100 bytes) antes de descargar la lista:
         // Si no es forzado, verificar si hubo algún cambio global en sek_cases
         let globalLatestUpdatedAt = "";
         if (!force) {
           const { data: latestRow, error: checkErr } = await supabase
             .from("sek_cases")
-            .select("updated_at")
+            .select("updated_at,last_message_at")
             .order("updated_at", { ascending: false })
             .limit(1)
             .maybeSingle();
 
           if (!checkErr && latestRow?.updated_at) {
             globalLatestUpdatedAt = latestRow.updated_at;
-            if (lastKnownMaxUpdatedAtRef.current && globalLatestUpdatedAt <= lastKnownMaxUpdatedAtRef.current) {
+            if (
+              lastKnownMaxUpdatedAtRef.current &&
+              toEpochMs(globalLatestUpdatedAt) <= toEpochMs(lastKnownMaxUpdatedAtRef.current)
+            ) {
               // Cero cambios en la base de datos: omitir la descarga masiva de casos
               return;
             }
@@ -1050,24 +1071,39 @@ export function InboxClient({
         const fetchEmail = containerType === "mi-gestion" ? (agentEmail || undefined) : undefined;
         let newCases: SekCase[];
         if (!force && lastKnownMaxUpdatedAtRef.current && allCasesRef.current.length > 0) {
-          // Delta sync: descargar solo los casos que cambiaron desde lastKnownMaxUpdatedAtRef (evita descargar 150-500 filas en cada mensaje)
+          // Delta sync con ventana de seguridad de 5s para evitar perder empates o desfases de milisegundos
+          const sinceIso = new Date(
+            Math.max(0, toEpochMs(lastKnownMaxUpdatedAtRef.current) - 5000)
+          ).toISOString();
           const { data: deltaRows, error: deltaErr } = await supabase
             .from("sek_cases")
             .select(CASE_LIST_FIELDS)
             .neq("canal", "simulator")
             .neq("es_test", true)
-            .gt("updated_at", lastKnownMaxUpdatedAtRef.current)
+            .gte("updated_at", sinceIso)
             .order("updated_at", { ascending: false })
             .limit(50);
 
           if (!deltaErr && Array.isArray(deltaRows) && deltaRows.length < 50) {
             if (deltaRows.length === 0) {
-              if (globalLatestUpdatedAt) lastKnownMaxUpdatedAtRef.current = globalLatestUpdatedAt;
+              if (globalLatestUpdatedAt && toEpochMs(globalLatestUpdatedAt) > toEpochMs(lastKnownMaxUpdatedAtRef.current)) {
+                lastKnownMaxUpdatedAtRef.current = globalLatestUpdatedAt;
+              }
               return;
             }
             const byId = new Map<string, SekCase>();
             for (const c of allCasesRef.current) byId.set(String(c.id), c);
-            for (const d of deltaRows as unknown as SekCase[]) byId.set(String(d.id), d);
+            for (const d of deltaRows as unknown as SekCase[]) {
+              const prev = byId.get(String(d.id));
+              if (
+                !prev ||
+                toEpochMs(d.last_message_at) > toEpochMs(prev.last_message_at) ||
+                toEpochMs(d.updated_at) > toEpochMs(prev.updated_at)
+              ) {
+                invalidateCaseHistoryCache(String(d.id));
+              }
+              byId.set(String(d.id), d);
+            }
             newCases = Array.from(byId.values()).sort((a, b) => {
               const ta = String(a.last_message_at || a.created_at || "");
               const tb = String(b.last_message_at || b.created_at || "");
@@ -1080,10 +1116,13 @@ export function InboxClient({
           newCases = await fetchCasesMeta(supabase, 150, fetchEmail, isUserAdmin);
         }
 
-        // Actualizar el timestamp más reciente conocido usando el máximo global para no entrar en bucle cuando el cambio fue de otro agente
+        // Actualizar el timestamp más reciente conocido usando comparación numérica desde Postgres
         const newMax = getMaxUpdatedAt(newCases);
-        const bestMax = globalLatestUpdatedAt && globalLatestUpdatedAt > newMax ? globalLatestUpdatedAt : newMax;
-        if (bestMax) {
+        const bestMax =
+          toEpochMs(globalLatestUpdatedAt) > toEpochMs(newMax)
+            ? globalLatestUpdatedAt
+            : newMax;
+        if (bestMax && toEpochMs(bestMax) > toEpochMs(lastKnownMaxUpdatedAtRef.current)) {
           lastKnownMaxUpdatedAtRef.current = bestMax;
         }
         allCasesRef.current = newCases;
@@ -1173,17 +1212,16 @@ export function InboxClient({
 
     const soporteTimer = containerType === "soporte-avanzado"
       ? setInterval(() => {
-          if (!isWorkHoursCR()) return;
+          if (!isUserActivelyViewing()) return;
           syncSoporteAvanzadoIds();
-        }, 15000)
+        }, 12000)
       : null;
 
-    /* Polling activo de respaldo cada 30s (solo pestaña visible y en horario laboral, chequeo de 60 bytes + delta sync) */
+    /* Polling activo de respaldo cada 12s (solo mientras el usuario ve activamente la pestaña, chequeo de ~100 bytes + delta sync) */
     const poll = setInterval(() => {
-      if (!isWorkHoursCR()) return;
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (!isUserActivelyViewing()) return;
       doRefetch(false);
-    }, 30000);
+    }, 12000);
 
     /* Refetch al volver a la ventana (pasa por el chequeo liviano de 60 bytes) */
     const handleFocus = () => {

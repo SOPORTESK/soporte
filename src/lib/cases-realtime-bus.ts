@@ -55,6 +55,7 @@ const caseStatusListeners = new Set<StatusListener>();
 let casesChannel: any = null;
 let casesClientRef: SupabaseClient | null = null;
 let casesLastStatus = "";
+let casesHasSubscribedOnce = false;
 let casesTeardownTimer: ReturnType<typeof setTimeout> | null = null;
 let casesReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -67,7 +68,16 @@ let agentsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 let windowRecoveryAttached = false;
 let healthCheckTimer: ReturnType<typeof setInterval> | null = null;
+let lastUserInteractionAt = Date.now();
+let lastMouseTouchMarkAt = 0;
+let lastHiddenAt = 0;
 const DEAD_STATUSES = new Set(["CLOSED", "CHANNEL_ERROR", "TIMED_OUT"]);
+
+export function isUserActivelyViewing(idleMs = 15 * 60_000): boolean {
+  if (typeof document === "undefined") return false;
+  if (document.visibilityState !== "visible") return false;
+  return Date.now() - lastUserInteractionAt < idleMs;
+}
 
 function isChannelHealthy(channel: any, client: SupabaseClient | null, lastStatus: string): boolean {
   if (!channel || !client) return false;
@@ -83,6 +93,18 @@ function isChannelHealthy(channel: any, client: SupabaseClient | null, lastStatu
 function attachWindowRecovery() {
   if (windowRecoveryAttached || typeof window === "undefined") return;
   windowRecoveryAttached = true;
+  lastUserInteractionAt = Date.now();
+
+  const markActive = () => {
+    lastUserInteractionAt = Date.now();
+  };
+  const markActiveThrottled = () => {
+    const now = Date.now();
+    if (now - lastMouseTouchMarkAt > 5000) {
+      lastMouseTouchMarkAt = now;
+      lastUserInteractionAt = now;
+    }
+  };
 
   const recoverIfNeeded = () => {
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
@@ -94,12 +116,39 @@ function attachWindowRecovery() {
     }
   };
 
-  window.addEventListener("online", recoverIfNeeded);
-  window.addEventListener("focus", recoverIfNeeded);
-  document.addEventListener("visibilitychange", recoverIfNeeded);
+  const handleVisibilityChange = () => {
+    if (typeof document === "undefined") return;
+    if (document.visibilityState === "hidden") {
+      lastHiddenAt = Date.now();
+      return;
+    }
+    lastUserInteractionAt = Date.now();
+    const sleptLong = lastHiddenAt > 0 && Date.now() - lastHiddenAt > 45_000;
+    if (sleptLong && caseListeners.size > 0 && casesClientRef) {
+      ensureCasesChannel(casesClientRef, true);
+    }
+    if (sleptLong && agentListeners.size > 0 && agentsClientRef) {
+      ensureAgentsChannel(agentsClientRef, true);
+    }
+    if (!sleptLong) recoverIfNeeded();
+  };
+
+  window.addEventListener("pointerdown", markActive, { passive: true });
+  window.addEventListener("keydown", markActive, { passive: true });
+  window.addEventListener("mousemove", markActiveThrottled, { passive: true });
+  window.addEventListener("scroll", markActiveThrottled, { passive: true, capture: true });
+  window.addEventListener("online", () => {
+    lastUserInteractionAt = Date.now();
+    recoverIfNeeded();
+  });
+  window.addEventListener("focus", () => {
+    lastUserInteractionAt = Date.now();
+    recoverIfNeeded();
+  });
+  document.addEventListener("visibilitychange", handleVisibilityChange);
 
   if (!healthCheckTimer) {
-    healthCheckTimer = setInterval(recoverIfNeeded, 15000);
+    healthCheckTimer = setInterval(recoverIfNeeded, 10000);
   }
 }
 
@@ -152,12 +201,14 @@ function ensureCasesChannel(supabase: SupabaseClient, forceReconnect = false) {
     })
     .subscribe((status: string) => {
       if (casesChannel !== createdChannel) return;
-      const prevStatus = casesLastStatus;
       casesLastStatus = status;
-      if (status === "SUBSCRIBED" && prevStatus && prevStatus !== "SUBSCRIBED" && typeof window !== "undefined") {
-        try {
-          window.dispatchEvent(new CustomEvent("cases_realtime_reconnected"));
-        } catch {}
+      if (status === "SUBSCRIBED") {
+        if (casesHasSubscribedOnce && typeof window !== "undefined") {
+          try {
+            window.dispatchEvent(new CustomEvent("cases_realtime_reconnected"));
+          } catch {}
+        }
+        casesHasSubscribedOnce = true;
       }
       caseStatusListeners.forEach((cb) => {
         try {
