@@ -7,6 +7,8 @@ on:
       - 'electron/**'
       - 'public/iSoTienda3D.png'
       - 'public/logo.ico'
+      - '.github/workflows/electron-release.yml'
+  workflow_dispatch:
 
 jobs:
   release:
@@ -30,13 +32,8 @@ jobs:
       - name: Auto-increment patch version
         id: pkg
         run: |
-          $json = Get-Content package.json | ConvertFrom-Json
-          $parts = $json.version -split '\.'
-          $parts[2] = [int]$parts[2] + 1
-          $newVersion = $parts -join '.'
-          $json.version = $newVersion
-          $json | ConvertTo-Json -Depth 10 | Set-Content package.json
-          echo "version=$newVersion" >> $env:GITHUB_OUTPUT
+          $newVersion = node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));const a=p.version.split('.');a[2]=String(Number(a[2])+1);p.version=a.join('.');fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');fs.appendFileSync(process.env.GITHUB_OUTPUT,'version='+p.version+'\n');process.stdout.write(p.version);"
+          if ($LASTEXITCODE -ne 0 -or -not $newVersion) { exit 1 }
           git config user.email "actions@github.com"
           git config user.name "GitHub Actions"
           git add package.json
@@ -44,14 +41,16 @@ jobs:
           git push
 
       - name: Build Electron app
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npm run electron:build
 
       - name: Publish GitHub Release
         run: |
           $v = "${{ steps.pkg.outputs.version }}"
           gh release create "v$v" `
-            "release\Soporte Sekunet Setup $v.exe" `
-            "release\Soporte Sekunet Setup $v.exe.blockmap" `
+            "release\Soporte-Sekunet-Setup-$v.exe" `
+            "release\Soporte-Sekunet-Setup-$v.exe.blockmap" `
             "release\latest.yml" `
             --title "Soporte Sekunet v$v" `
             --notes "Release automatico v$v" `

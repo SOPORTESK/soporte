@@ -16,7 +16,7 @@
     "deploy:ia-agent": "node scripts/deploy-functions.mjs ia-agent",
     "prepare": "simple-git-hooks || true",
     "electron:dev": "cross-env NODE_ENV=development electron .",
-    "electron:build": "electron-builder --win"
+    "electron:build": "electron-builder --win --publish never"
   },
   "build": {
     "appId": "com.sekunet.soporte",
@@ -47,6 +47,7 @@
     "win": {
       "target": "nsis",
       "icon": "public/iSoTienda3D.png",
+      "artifactName": "Soporte-Sekunet-Setup-${version}.${ext}",
       "verifyUpdateCodeSignature": false
     },
     "nsis": {
