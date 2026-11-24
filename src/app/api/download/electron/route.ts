@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
     let targetFile = "Soporte Sekunet Setup 1.2.0.exe";
     if (fs.existsSync(releaseDir)) {
       const files = fs.readdirSync(releaseDir)
-        .filter((f) => f.endsWith(".exe") && f.toLowerCase().includes("soporte sekunet"))
+        .filter((f) => f.endsWith(".exe") && (f.toLowerCase().includes("soporte sekunet") || f.toLowerCase().includes("soporte-sekunet")))
         .sort((a, b) => {
           const statA = fs.statSync(path.join(releaseDir, a));
           const statB = fs.statSync(path.join(releaseDir, b));

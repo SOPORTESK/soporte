@@ -1,19 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { cacheDelete, cacheSet } from "@/lib/supabase/cache";
 
 export const dynamic = "force-dynamic";
 
 const SETTING_KEY = "require_electron_desktop_app";
 let cachedSetting: boolean | null = null;
 let lastCacheTime = 0;
-const CACHE_TTL_MS = 20000; // 20 segundos
+const CACHE_TTL_MS = 5000; // 5 segundos
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const fresh = req.nextUrl.searchParams.get("fresh") === "1";
     const now = Date.now();
-    if (cachedSetting !== null && now - lastCacheTime < CACHE_TTL_MS) {
-      return NextResponse.json({ require_electron: cachedSetting });
+    if (!fresh && cachedSetting !== null && now - lastCacheTime < CACHE_TTL_MS) {
+      return NextResponse.json(
+        { require_electron: cachedSetting },
+        { headers: { "Cache-Control": "no-store" } }
+      );
     }
 
     const supabase = createServiceClient();
@@ -35,10 +40,17 @@ export async function GET() {
 
     cachedSetting = enabled;
     lastCacheTime = now;
+    cacheSet(SETTING_KEY, enabled);
 
-    return NextResponse.json({ require_electron: enabled });
+    return NextResponse.json(
+      { require_electron: enabled },
+      { headers: { "Cache-Control": "no-store" } }
+    );
   } catch (e: any) {
-    return NextResponse.json({ require_electron: cachedSetting ?? false });
+    return NextResponse.json(
+      { require_electron: cachedSetting ?? false },
+      { headers: { "Cache-Control": "no-store" } }
+    );
   }
 }
 
@@ -85,6 +97,8 @@ export async function POST(req: NextRequest) {
 
     cachedSetting = require_electron;
     lastCacheTime = Date.now();
+    cacheDelete(SETTING_KEY);
+    cacheSet(SETTING_KEY, require_electron);
 
     return NextResponse.json({ success: true, require_electron });
   } catch (e: any) {

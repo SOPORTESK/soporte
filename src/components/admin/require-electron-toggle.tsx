@@ -1,12 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Monitor, Globe, ShieldAlert, Download, Laptop } from "lucide-react";
 
 export function RequireElectronToggle({ initialValue }: { initialValue: boolean }) {
+  const router = useRouter();
   const [requireElectron, setRequireElectron] = useState(initialValue);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setRequireElectron(initialValue);
+  }, [initialValue]);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/admin/require-electron?fresh=1", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (active && data && typeof data.require_electron === "boolean") {
+          setRequireElectron(data.require_electron);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const toggle = async () => {
     setLoading(true);
@@ -21,6 +42,7 @@ export function RequireElectronToggle({ initialValue }: { initialValue: boolean 
       if (!res.ok) throw new Error(data.error || "Error al actualizar la configuración");
       
       setRequireElectron(data.require_electron);
+      router.refresh();
       toast.success(
         data.require_electron
           ? "Obligatoriedad activada: Solo usuarios en la app de escritorio (o localhost / superadmins) podrán acceder."

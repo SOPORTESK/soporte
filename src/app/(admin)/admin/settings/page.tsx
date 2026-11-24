@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
+import { cacheGet, cacheSet } from "@/lib/supabase/cache";
 import { getUserWithTimeout, queryWithFallback } from "@/lib/supabase/resilient";
 import { redirect } from "next/navigation";
 import { DangerZonePanel } from "@/components/admin/danger-zone-panel";
@@ -73,27 +75,38 @@ export default async function AdminSettingsPage() {
       null,
       30000
     ),
-    queryWithFallback(
-      "require_electron_desktop_app",
-      async () => {
-        const { data, error } = await supabase
-          .from("sek_app_settings")
-          .select("value")
-          .eq("key", "require_electron_desktop_app")
-          .maybeSingle();
+    (async () => {
+      try {
+        const svc = createServiceClient();
+        const result = await Promise.race([
+          svc
+            .from("sek_app_settings")
+            .select("value")
+            .eq("key", "require_electron_desktop_app")
+            .maybeSingle(),
+          new Promise<{ data: null; error: { message: string } }>((resolve) =>
+            setTimeout(() => resolve({ data: null, error: { message: "timeout" } }), 5000)
+          ),
+        ]);
+        if (result.error) throw new Error(result.error.message);
         let enabled = false;
-        if (data?.value) {
+        if (result.data?.value) {
           try {
-            enabled = Boolean(JSON.parse(data.value).enabled);
+            enabled = Boolean(JSON.parse(result.data.value).enabled);
           } catch {
-            enabled = data.value === "true";
+            enabled = result.data.value === "true";
           }
         }
-        return { data: enabled, error };
-      },
-      false,
-      30000
-    ),
+        cacheSet("require_electron_desktop_app", enabled);
+        return { data: enabled, error: null };
+      } catch (err: any) {
+        const cached = cacheGet("require_electron_desktop_app");
+        return {
+          data: typeof cached === "boolean" ? cached : false,
+          error: err?.message || "error",
+        };
+      }
+    })(),
     queryWithFallback(
       "settings_open_cases_count",
       async () => {

@@ -14,41 +14,51 @@ export function ElectronGatekeeper({ requireElectron, userRole }: ElectronGateke
   const [downloadStarted, setDownloadStarted] = useState<boolean>(false);
 
   useEffect(() => {
-    // Si la regla está apagada, no bloquear
-    if (!requireElectron) {
-      setIsBlocked(false);
-      return;
-    }
-
     // Exoneración 1: Si es superadmin, no bloquear jamás
     if (userRole === "superadmin") {
       setIsBlocked(false);
       return;
     }
 
+    if (typeof window === "undefined") return;
+
     // Exoneración 2: Si el host es localhost o 127.0.0.1, no bloquear jamás
-    if (typeof window !== "undefined") {
-      const hostname = window.location.hostname.toLowerCase();
-      if (
-        hostname === "localhost" ||
-        hostname === "127.0.0.1" ||
-        hostname === "::1" ||
-        hostname.endsWith(".local")
-      ) {
-        setIsBlocked(false);
-        return;
-      }
-
-      // Verificación de si estamos corriendo dentro de la app oficial de Electron
-      const isElectron = Boolean(
-        (window as any).electronAPI?.isElectron ||
-          navigator.userAgent.toLowerCase().includes("electron")
-      );
-
-      if (!isElectron) {
-        setIsBlocked(true);
-      }
+    const hostname = window.location.hostname.toLowerCase();
+    if (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname.endsWith(".local")
+    ) {
+      setIsBlocked(false);
+      return;
     }
+
+    // Verificación de si estamos corriendo dentro de la app oficial de Electron
+    const isElectron = Boolean(
+      (window as any).electronAPI?.isElectron ||
+        navigator.userAgent.toLowerCase().includes("electron")
+    );
+    if (isElectron) {
+      setIsBlocked(false);
+      return;
+    }
+
+    setIsBlocked(Boolean(requireElectron));
+
+    let active = true;
+    fetch("/api/admin/require-electron?fresh=1", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (active && data && typeof data.require_electron === "boolean") {
+          setIsBlocked(data.require_electron);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      active = false;
+    };
   }, [requireElectron, userRole]);
 
   if (!isBlocked) return null;
