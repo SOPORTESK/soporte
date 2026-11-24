@@ -9,7 +9,40 @@ import {
 
 const VISION_CACHE_TTL_MS = 6 * 60 * 60_000;
 const VISION_CACHE_MAX = 200;
+const VISION_ERROR_COOLDOWN_MS = 300_000; // 5 min en visión ante 503/timeout/error
 const visionCache = new Map<string, { at: number; text: string }>();
+const inflightVision = new Map<string, Promise<string | null>>();
+const visionCooldownUntil = new Map<string, number>();
+
+type VisionWinner = {
+  provider: "google" | "cloudflare" | "openrouter" | "nvidia";
+  keyIdx: number;
+  model: string;
+};
+let lastWinningVision: VisionWinner | null = null;
+
+function isVisionHealthy(ck: string): boolean {
+  if ((visionCooldownUntil.get(ck) ?? 0) > Date.now()) return false;
+  return !isModelCooledDown(ck);
+}
+
+function markVisionFailure(ck: string, status?: number): void {
+  markModelFailure(ck, status);
+  if (!status || status >= 500 || status === 403 || status === 408) {
+    visionCooldownUntil.set(ck, Date.now() + VISION_ERROR_COOLDOWN_MS);
+  }
+  if (lastWinningVision) {
+    const winCk = `${lastWinningVision.provider}#${lastWinningVision.keyIdx}/${lastWinningVision.model}`;
+    if (winCk === ck) lastWinningVision = null;
+  }
+}
+
+function markVisionSuccess(winner: VisionWinner): void {
+  const ck = `${winner.provider}#${winner.keyIdx}/${winner.model}`;
+  markModelSuccess(ck);
+  visionCooldownUntil.delete(ck);
+  lastWinningVision = winner;
+}
 
 function getCachedVision(url: string): string | null {
   const hit = visionCache.get(url);
@@ -28,6 +61,73 @@ function setCachedVision(url: string, text: string): void {
     if (oldest) visionCache.delete(oldest);
   }
   visionCache.set(url, { at: Date.now(), text });
+}
+
+function createLinkedAbortSignal(outerSignal: AbortSignal | undefined, timeoutMs: number): {
+  signal: AbortSignal;
+  cleanup: () => void;
+} {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => {
+    try { ctrl.abort(); } catch {}
+  }, Math.max(500, timeoutMs));
+  const onOuterAbort = () => {
+    try { ctrl.abort(); } catch {}
+  };
+  if (outerSignal) {
+    if (outerSignal.aborted) {
+      onOuterAbort();
+    } else {
+      outerSignal.addEventListener("abort", onOuterAbort, { once: true });
+    }
+  }
+  return {
+    signal: ctrl.signal,
+    cleanup: () => {
+      clearTimeout(timer);
+      if (outerSignal) outerSignal.removeEventListener("abort", onOuterAbort);
+    },
+  };
+}
+
+/**
+ * Ejecuta candidatos de visión en paralelo; resuelve en cuanto el primero devuelva texto válido
+ * y aborta de inmediato las demás llamadas en vuelo.
+ */
+function raceFirstVisionResult(
+  tasks: Array<(signal: AbortSignal) => Promise<string | null>>,
+  timeoutMs: number
+): Promise<string | null> {
+  if (tasks.length === 0 || timeoutMs <= 0) return Promise.resolve(null);
+  const controller = new AbortController();
+  return new Promise((resolve) => {
+    let settled = false;
+    let remaining = tasks.length;
+    const finish = (val: string | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { controller.abort(); } catch {}
+      resolve(val);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    for (const task of tasks) {
+      Promise.resolve()
+        .then(() => task(controller.signal))
+        .then((res) => {
+          if (res && !settled) {
+            finish(res);
+            return;
+          }
+          remaining--;
+          if (remaining <= 0 && !settled) finish(null);
+        })
+        .catch(() => {
+          remaining--;
+          if (remaining <= 0 && !settled) finish(null);
+        });
+    }
+  });
 }
 
 function getMimeType(url: string, declaredType?: string): string {
@@ -172,7 +272,7 @@ export async function transcribeAudio(
                     { inline_data: { mime_type: mimeType, data: base64Data } },
                   ],
                 }],
-                generationConfig: { maxOutputTokens: 2048, temperature: 0 },
+                generationConfig: { maxOutputTokens: 1500, temperature: 0 },
               }),
               signal: AbortSignal.timeout(15000),
             });
@@ -207,8 +307,75 @@ export async function transcribeAudio(
   }
 }
 
+async function callGoogleVisionCandidate(params: {
+  keyIdx: number;
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  prompt: string;
+  mimeType: string;
+  base64Data: string;
+  byteLength: number;
+  timeoutMs: number;
+  outerSignal?: AbortSignal;
+}): Promise<string | null> {
+  const ck = `google#${params.keyIdx}/${params.model}`;
+  if (!isVisionHealthy(ck)) return null;
+  const { signal, cleanup } = createLinkedAbortSignal(params.outerSignal, params.timeoutMs);
+  try {
+    const res = await fetch(
+      `${params.baseUrl.replace(/\/+$/, "")}/models/${params.model}:generateContent?key=${params.apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: params.prompt },
+              { inline_data: { mime_type: params.mimeType, data: params.base64Data } },
+            ],
+          }],
+          generationConfig: { maxOutputTokens: 750, temperature: 0.1 },
+        }),
+        signal,
+      }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      const text = data.candidates?.[0]?.content?.parts
+        ?.filter((p: any) => !p?.thought)
+        .map((p: any) => p.text)
+        .filter(Boolean)
+        .join("")
+        .trim();
+      if (text) {
+        markVisionSuccess({ provider: "google", keyIdx: params.keyIdx, model: params.model });
+        console.log(`[vision] ✅ Google ${params.model} (#${params.keyIdx}, ${(params.byteLength / 1024).toFixed(1)} KB)`);
+        return text;
+      }
+      if (!params.outerSignal?.aborted) markVisionFailure(ck);
+      return null;
+    }
+    if (!params.outerSignal?.aborted) {
+      markVisionFailure(ck, res.status);
+      const errTxt = await res.text().catch(() => "");
+      console.warn(`[vision] Google ${params.model} (#${params.keyIdx}) error ${res.status}:`, errTxt.substring(0, 120));
+    }
+    return null;
+  } catch (e: any) {
+    if (!params.outerSignal?.aborted) {
+      markVisionFailure(ck);
+      console.warn(`[vision] Fetch error Google ${params.model} (#${params.keyIdx}):`, e?.message);
+    }
+    return null;
+  } finally {
+    cleanup();
+  }
+}
+
 async function callOpenAiCompatibleVision(params: {
-  ck: string;
+  provider: "cloudflare" | "openrouter" | "nvidia";
+  keyIdx: number;
   endpoint: string;
   apiKey: string;
   model: string;
@@ -217,9 +384,12 @@ async function callOpenAiCompatibleVision(params: {
   base64Data: string;
   label: string;
   byteLength: number;
-  timeoutMs?: number;
+  timeoutMs: number;
+  outerSignal?: AbortSignal;
 }): Promise<string | null> {
-  if (isModelCooledDown(params.ck)) return null;
+  const ck = `${params.provider}#${params.keyIdx}/${params.model}`;
+  if (!isVisionHealthy(ck)) return null;
+  const { signal, cleanup } = createLinkedAbortSignal(params.outerSignal, params.timeoutMs);
   try {
     const res = await fetch(params.endpoint, {
       method: "POST",
@@ -239,9 +409,9 @@ async function callOpenAiCompatibleVision(params: {
           },
         ],
         temperature: 0.1,
-        max_tokens: 1024,
+        max_tokens: 750,
       }),
-      signal: AbortSignal.timeout(params.timeoutMs ?? 15000),
+      signal,
     });
 
     if (res.ok) {
@@ -250,39 +420,40 @@ async function callOpenAiCompatibleVision(params: {
       let text = String(msg?.content || msg?.reasoning || msg?.reasoning_content || "").trim();
       if (text) text = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
       if (text) {
-        markModelSuccess(params.ck);
+        markVisionSuccess({ provider: params.provider, keyIdx: params.keyIdx, model: params.model });
         console.log(`[vision] ✅ ${params.label} (${params.model}, ${(params.byteLength / 1024).toFixed(1)} KB)`);
         return text;
       }
-      markModelFailure(params.ck);
+      if (!params.outerSignal?.aborted) markVisionFailure(ck);
       return null;
     }
 
-    markModelFailure(params.ck, res.status);
-    const errTxt = await res.text().catch(() => "");
-    console.warn(`[vision] ${params.label} (${params.model}) error ${res.status}:`, errTxt.substring(0, 120));
+    if (!params.outerSignal?.aborted) {
+      markVisionFailure(ck, res.status);
+      const errTxt = await res.text().catch(() => "");
+      console.warn(`[vision] ${params.label} (${params.model}) error ${res.status}:`, errTxt.substring(0, 120));
+    }
     return null;
   } catch (e: any) {
-    markModelFailure(params.ck);
-    console.warn(`[vision] Excepción ${params.label} (${params.model}):`, e?.message);
+    if (!params.outerSignal?.aborted) {
+      markVisionFailure(ck);
+      console.warn(`[vision] Excepción ${params.label} (${params.model}):`, e?.message);
+    }
     return null;
+  } finally {
+    cleanup();
   }
 }
 
-/**
- * Analiza cualquier archivo multimedia (imagen, video, audio, PDF, texto)
- * usando una cascada de 5 capas: Google multi-llave -> Cloudflare Vision -> OpenRouter :free -> NVIDIA NIM -> OCR local Tesseract.
- */
-export async function analyzeMedia(
+async function runAnalyzeMediaInternal(
   mediaUrl: string,
   mediaType?: string,
   userText = "",
-  fileName = ""
+  fileName = "",
+  maxTotalMs = 20000
 ): Promise<string | null> {
-  if (!mediaUrl || typeof mediaUrl !== "string") return null;
-
-  const cached = getCachedVision(mediaUrl);
-  if (cached) return cached;
+  const totalDeadline = Date.now() + maxTotalMs;
+  const cloudDeadline = Date.now() + Math.max(8000, maxTotalMs - 7000);
 
   try {
     const mimeType = getMimeType(mediaUrl, mediaType);
@@ -291,7 +462,6 @@ export async function analyzeMedia(
     const isVideo = mimeType.startsWith("video/");
     const isPdf = mimeType === "application/pdf";
 
-    // Si es audio, transcribirlo directamente con Groq Whisper / Gemini
     if (isAudio) {
       const transcription = await transcribeAudio(mediaUrl, mimeType);
       if (transcription) {
@@ -310,46 +480,22 @@ export async function analyzeMedia(
 
     let prompt = "";
     if (isImage) {
-      prompt = `Eres un ingeniero senior especializado en sistemas de seguridad electrónica (CCTV, cámaras IP, DVR/NVR, control de acceso, redes, alarmas). ${userText ? `Mensaje o consulta adjunta: "${userText}".` : ""}
+      prompt = `Eres ingeniero senior en seguridad electrónica (CCTV, NVR/DVR, control de acceso, redes, alarmas). ${userText ? `Consulta: "${userText}".` : ""}
 
-Realiza un análisis técnico exhaustivo de esta imagen:
-
-## IDENTIFICACIÓN DE EQUIPOS
-- Marca visible (Hikvision, Dahua, Uniview, Ezviz, TP-Link, Ubiquiti, etc.)
-- Modelo completo, número de parte o serigrafía visible
-- Número de serie, MAC o firmware si aparece en pantalla o etiquetas
-
-## ANÁLISIS VISUAL DEL PROBLEMA
-- Describe EXACTAMENTE lo que se observa: pantalla, interfaz gráfica, cámaras en pantalla
-- Mensajes de error literales (ej. "Unsupported stream type", "Offline", "No video", "Error de red")
-- Estado de indicadores LED (color, encendido, apagado, parpadeo)
-- Cableado, puertos, terminales o conexiones visibles
-- Daños físicos visibles o condiciones ambientales de instalación
-
-## DIAGNÓSTICO TÉCNICO
-- Causa raíz más probable del problema
-- Causas secundarias posibles
-- Nivel de urgencia: CRÍTICO / ALTO / MEDIO / BAJO
-
-## RECOMENDACIONES TÉCNICAS
-- Pasos específicos ordenados por prioridad que el técnico debe verificar o realizar para resolver el problema.
-
-Sé sumamente detallado, preciso y profesional. Transcribe cualquier texto o código relevante de la imagen.`;
+Analiza esta imagen de forma concisa y precisa:
+1. EQUIPO: marca, modelo exacto, serie/MAC/firmware visibles.
+2. PANTALLA / ERRORES: transcribe texto literal, códigos de error, IPs, puertos, estado de cámaras/LEDs o menús visibles.
+3. DIAGNÓSTICO Y PASOS: causa probable y pasos técnicos puntuales por prioridad.`;
     } else if (isVideo) {
-      prompt = `Eres un ingeniero senior en videovigilancia y sistemas de seguridad. ${userText ? `Mensaje o consulta adjunta: "${userText}".` : ""}
-
-Analiza este video minuciosamente: describe la escena, equipos visibles, fallas en reproducción o transmisión, comportamiento anómalo observable, diagnóstico técnico y pasos de solución.`;
+      prompt = `Eres ingeniero senior en videovigilancia. ${userText ? `Consulta: "${userText}".` : ""} Analiza este video: equipos visibles, fallas, textos o errores en pantalla, diagnóstico técnico y solución.`;
     } else if (isPdf) {
-      prompt = `Eres un experto técnico de Sekunet. ${userText ? `Mensaje o consulta adjunta: "${userText}".` : ""}
-
-Analiza este documento PDF: extrae marcas, modelos, números de serie, reportes de fallas, configuraciones técnicas y datos críticos para el soporte técnico.`;
+      prompt = `Eres experto técnico de Sekunet. ${userText ? `Consulta: "${userText}".` : ""} Extrae marcas, modelos, series, fallas y configuraciones críticas de este PDF.`;
     } else {
-      prompt = `Eres un experto técnico de Sekunet. ${userText ? `Mensaje o consulta adjunta: "${userText}".` : ""}
-
-Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae toda la información relevante de hardware, errores, configuraciones y diagnóstico para soporte.`;
+      prompt = `Eres experto técnico de Sekunet. ${userText ? `Consulta: "${userText}".` : ""} Extrae equipos, errores, configuraciones y diagnóstico de este archivo (${fileName || mimeType}).`;
     }
 
-    const fileRes = await fetch(mediaUrl, { signal: AbortSignal.timeout(12000) });
+    const dlTimeout = Math.min(8000, Math.max(3000, cloudDeadline - Date.now()));
+    const fileRes = await fetch(mediaUrl, { signal: AbortSignal.timeout(dlTimeout) });
     if (!fileRes.ok) {
       console.warn("[vision] Error descargando archivo:", fileRes.status, mediaUrl);
       return null;
@@ -363,7 +509,12 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
     }
     const base64Data = buf.toString("base64");
 
-    // 1. Nivel 1: Google Gemini directo (multi-llave + modelos prioritarios + autodescubiertos)
+    type CandidateTask = {
+      ck: string;
+      run: (timeoutMs: number, signal?: AbortSignal) => Promise<string | null>;
+    };
+
+    const googleTasks: CandidateTask[] = [];
     if (googleCfg && googleCfg.keys.length > 0) {
       const staticGoogle = [
         "gemini-3.5-flash-lite",
@@ -375,158 +526,222 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
         "gemini-3-flash-preview",
       ];
       const discovered = await discoverProviderModels("google", googleCfg.keys[0], googleCfg.baseUrl, "vision");
-      const googleModels = Array.from(new Set([...staticGoogle, ...discovered])).slice(0, 10);
-      const base = googleCfg.baseUrl.replace(/\/+$/, "");
-
+      const googleModels = Array.from(new Set([...staticGoogle, ...discovered])).slice(0, 8);
       for (let ki = 0; ki < googleCfg.keys.length; ki++) {
-        const key = googleCfg.keys[ki];
         for (const m of googleModels) {
           const ck = `google#${ki}/${m}`;
-          if (isModelCooledDown(ck)) continue;
-          try {
-            const gRes = await fetch(`${base}/models/${m}:generateContent?key=${key}`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                contents: [{
-                  parts: [
-                    { text: prompt },
-                    { inline_data: { mime_type: mimeType, data: base64Data } },
-                  ],
-                }],
-                generationConfig: { maxOutputTokens: 2048, temperature: 0.1 },
+          if (!isVisionHealthy(ck)) continue;
+          const apiKey = googleCfg.keys[ki];
+          const baseUrl = googleCfg.baseUrl;
+          googleTasks.push({
+            ck,
+            run: (timeoutMs, outerSignal) =>
+              callGoogleVisionCandidate({
+                keyIdx: ki,
+                apiKey,
+                baseUrl,
+                model: m,
+                prompt,
+                mimeType,
+                base64Data,
+                byteLength: buf.byteLength,
+                timeoutMs,
+                outerSignal,
               }),
-              signal: AbortSignal.timeout(12000),
-            });
-            if (gRes.ok) {
-              const data = await gRes.json();
-              const text = data.candidates?.[0]?.content?.parts
-                ?.filter((p: any) => !p?.thought)
-                .map((p: any) => p.text)
-                .filter(Boolean)
-                .join("")
-                .trim();
-              if (text) {
-                markModelSuccess(ck);
-                console.log(`[vision] ✅ Google ${m} (#${ki}, ${(buf.byteLength / 1024).toFixed(1)} KB)`);
-                setCachedVision(mediaUrl, text);
-                return text;
-              }
-              markModelFailure(ck);
-            } else {
-              markModelFailure(ck, gRes.status);
-              const errTxt = await gRes.text().catch(() => "");
-              console.warn(`[vision] Google ${m} (#${ki}) error:`, gRes.status, errTxt.substring(0, 120));
-            }
-          } catch (e: any) {
-            markModelFailure(ck);
-            console.warn(`[vision] Fetch error Google ${m} (#${ki}):`, e?.message);
-          }
-        }
-      }
-    }
-
-    // 2. Nivel 2: Cloudflare Workers AI Vision (10,000 neuronas gratis/día)
-    if (isImage && cfCfg && buf.byteLength <= 8 * 1024 * 1024) {
-      const cfModels = [
-        "@cf/mistralai/mistral-small-3.1-24b-instruct",
-        "@cf/meta/llama-4-scout-17b-16e-instruct",
-        "@cf/qwen/qwen3.8-27b",
-        "@cf/meta/llama-3.2-11b-vision-instruct",
-      ];
-      for (let ki = 0; ki < cfCfg.keys.length; ki++) {
-        const key = cfCfg.keys[ki];
-        for (const cfModel of cfModels) {
-          const text = await callOpenAiCompatibleVision({
-            ck: `cloudflare#${ki}/${cfModel}`,
-            endpoint: `${cfCfg.baseUrl}/chat/completions`,
-            apiKey: key,
-            model: cfModel,
-            prompt,
-            mimeType,
-            base64Data,
-            label: `Cloudflare #${ki}`,
-            byteLength: buf.byteLength,
-            timeoutMs: 15000,
           });
-          if (text) {
-            setCachedVision(mediaUrl, text);
-            return text;
-          }
         }
       }
     }
 
-    // 3. Nivel 3: OpenRouter Vision (:free estáticos + autodescubiertos)
-    if (isImage && openrouterCfg && openrouterCfg.keys.length > 0 && buf.byteLength <= 8 * 1024 * 1024) {
+    // Video y PDF solo van por Google Gemini
+    if (!isImage) {
+      for (const gt of googleTasks.slice(0, 4)) {
+        const rem = totalDeadline - Date.now();
+        if (rem < 2500) break;
+        const txt = await gt.run(Math.min(14000, rem));
+        if (txt) {
+          setCachedVision(mediaUrl, txt);
+          return txt;
+        }
+      }
+      return null;
+    }
+
+    const canInlineUpload = buf.byteLength <= 8 * 1024 * 1024;
+    const orTasks: CandidateTask[] = [];
+    if (canInlineUpload && openrouterCfg && openrouterCfg.keys.length > 0) {
       const staticOrModels = [
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
         "nvidia/nemotron-3.5-super-vl:free",
         "inclusionai/ling-3.2-flash:free",
         "google/gemma-4-31b-it:free",
       ];
       const discoveredOr = await discoverProviderModels("openrouter", openrouterCfg.keys[0], openrouterCfg.baseUrl, "vision");
-      const orModels = Array.from(new Set([...staticOrModels, ...discoveredOr, "qwen/qwen2.5-vl-72b-instruct"])).slice(0, 8);
+      const orModels = Array.from(new Set([...staticOrModels, ...discoveredOr])).slice(0, 8);
       const endpoint = `${openrouterCfg.baseUrl.replace(/\/+$/, "")}/chat/completions`;
-
       for (let ki = 0; ki < openrouterCfg.keys.length; ki++) {
-        const key = openrouterCfg.keys[ki];
         for (const orModel of orModels) {
-          const text = await callOpenAiCompatibleVision({
-            ck: `openrouter#${ki}/${orModel}`,
-            endpoint,
-            apiKey: key,
-            model: orModel,
-            prompt,
-            mimeType,
-            base64Data,
-            label: `OpenRouter #${ki}`,
-            byteLength: buf.byteLength,
-            timeoutMs: 15000,
+          const ck = `openrouter#${ki}/${orModel}`;
+          if (!isVisionHealthy(ck)) continue;
+          const apiKey = openrouterCfg.keys[ki];
+          orTasks.push({
+            ck,
+            run: (timeoutMs, outerSignal) =>
+              callOpenAiCompatibleVision({
+                provider: "openrouter",
+                keyIdx: ki,
+                endpoint,
+                apiKey,
+                model: orModel,
+                prompt,
+                mimeType,
+                base64Data,
+                label: `OpenRouter #${ki}`,
+                byteLength: buf.byteLength,
+                timeoutMs,
+                outerSignal,
+              }),
           });
-          if (text) {
-            setCachedVision(mediaUrl, text);
-            return text;
-          }
         }
       }
     }
 
-    // 4. Nivel 4: NVIDIA NIM Direct Vision
-    if (isImage && nvidiaCfg && nvidiaCfg.keys.length > 0 && buf.byteLength <= 8 * 1024 * 1024) {
+    const cfTasks: CandidateTask[] = [];
+    if (canInlineUpload && cfCfg) {
+      const cfModels = [
+        "@cf/mistralai/mistral-small-3.1-24b-instruct",
+        "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "@cf/qwen/qwen3.8-27b",
+      ];
+      for (let ki = 0; ki < cfCfg.keys.length; ki++) {
+        for (const cfModel of cfModels) {
+          const ck = `cloudflare#${ki}/${cfModel}`;
+          if (!isVisionHealthy(ck)) continue;
+          const apiKey = cfCfg.keys[ki];
+          cfTasks.push({
+            ck,
+            run: (timeoutMs, outerSignal) =>
+              callOpenAiCompatibleVision({
+                provider: "cloudflare",
+                keyIdx: ki,
+                endpoint: `${cfCfg.baseUrl}/chat/completions`,
+                apiKey,
+                model: cfModel,
+                prompt,
+                mimeType,
+                base64Data,
+                label: `Cloudflare #${ki}`,
+                byteLength: buf.byteLength,
+                timeoutMs,
+                outerSignal,
+              }),
+          });
+        }
+      }
+    }
+
+    const nvTasks: CandidateTask[] = [];
+    if (canInlineUpload && nvidiaCfg && nvidiaCfg.keys.length > 0) {
       const discoveredNv = await discoverProviderModels("nvidia", nvidiaCfg.keys[0], nvidiaCfg.baseUrl, "vision");
       const nvModels = Array.from(new Set(["nvidia/nemotron-3.5-super-vl-120b-a12b", ...discoveredNv])).slice(0, 4);
       const endpoint = `${nvidiaCfg.baseUrl.replace(/\/+$/, "")}/chat/completions`;
-
       for (let ki = 0; ki < nvidiaCfg.keys.length; ki++) {
-        const key = nvidiaCfg.keys[ki];
         for (const nvModel of nvModels) {
-          const text = await callOpenAiCompatibleVision({
-            ck: `nvidia#${ki}/${nvModel}`,
-            endpoint,
-            apiKey: key,
-            model: nvModel,
-            prompt,
-            mimeType,
-            base64Data,
-            label: `NVIDIA #${ki}`,
-            byteLength: buf.byteLength,
-            timeoutMs: 15000,
+          const ck = `nvidia#${ki}/${nvModel}`;
+          if (!isVisionHealthy(ck)) continue;
+          const apiKey = nvidiaCfg.keys[ki];
+          nvTasks.push({
+            ck,
+            run: (timeoutMs, outerSignal) =>
+              callOpenAiCompatibleVision({
+                provider: "nvidia",
+                keyIdx: ki,
+                endpoint,
+                apiKey,
+                model: nvModel,
+                prompt,
+                mimeType,
+                base64Data,
+                label: `NVIDIA #${ki}`,
+                byteLength: buf.byteLength,
+                timeoutMs,
+                outerSignal,
+              }),
           });
-          if (text) {
-            setCachedVision(mediaUrl, text);
-            return text;
-          }
         }
       }
     }
 
-    // 5. Nivel 5: OCR Local Offline (tesseract.js v7) — red de seguridad gratuita que nunca caduca
-    if (isImage && buf.byteLength <= 8 * 1024 * 1024) {
+    const attempted = new Set<string>();
+    const allByCk = new Map<string, CandidateTask>();
+    for (const t of [...googleTasks, ...orTasks, ...cfTasks, ...nvTasks]) {
+      allByCk.set(t.ck, t);
+    }
+
+    // Paso rápido: último modelo ganador sano (si respondió bien recientemente, ahorra llamadas paralelas)
+    if (lastWinningVision) {
+      const winCk = `${lastWinningVision.provider}#${lastWinningVision.keyIdx}/${lastWinningVision.model}`;
+      const winTask = allByCk.get(winCk);
+      const cloudRem = cloudDeadline - Date.now();
+      if (winTask && isVisionHealthy(winCk) && cloudRem >= 2500) {
+        attempted.add(winCk);
+        const fastRes = await winTask.run(Math.min(7500, cloudRem));
+        if (fastRes) {
+          setCachedVision(mediaUrl, fastRes);
+          return fastRes;
+        }
+      }
+    }
+
+    const nextUntried = (list: CandidateTask[]) => list.find((t) => !attempted.has(t.ck) && isVisionHealthy(t.ck));
+
+    // Ola 1 en paralelo: 1er sano de Google + 1er sano de OpenRouter :free + 1er sano de Cloudflare
+    const cloudRem1 = cloudDeadline - Date.now();
+    if (cloudRem1 >= 2000) {
+      const wave1Candidates = [nextUntried(googleTasks), nextUntried(orTasks), nextUntried(cfTasks)].filter(
+        (c): c is CandidateTask => Boolean(c)
+      );
+      wave1Candidates.forEach((c) => attempted.add(c.ck));
+      const wave1Budget = Math.min(7500, cloudRem1);
+      const w1Res = await raceFirstVisionResult(
+        wave1Candidates.map((c) => (sig) => c.run(wave1Budget, sig)),
+        wave1Budget
+      );
+      if (w1Res) {
+        setCachedVision(mediaUrl, w1Res);
+        return w1Res;
+      }
+    }
+
+    // Ola 2 en paralelo: siguientes candidatos de OpenRouter :free, Cloudflare, NVIDIA NIM y Google
+    const cloudRem2 = cloudDeadline - Date.now();
+    if (cloudRem2 >= 2500) {
+      const wave2Candidates = [
+        nextUntried(orTasks),
+        nextUntried(cfTasks),
+        nextUntried(nvTasks),
+        nextUntried(googleTasks),
+      ].filter((c): c is CandidateTask => Boolean(c));
+      wave2Candidates.forEach((c) => attempted.add(c.ck));
+      const wave2Budget = Math.min(7500, cloudRem2);
+      const w2Res = await raceFirstVisionResult(
+        wave2Candidates.map((c) => (sig) => c.run(wave2Budget, sig)),
+        wave2Budget
+      );
+      if (w2Res) {
+        setCachedVision(mediaUrl, w2Res);
+        return w2Res;
+      }
+    }
+
+    // Red de seguridad garantizada: OCR Local Offline (tesseract.js v7) dentro del presupuesto restante
+    if (canInlineUpload) {
       try {
+        const ocrBudget = Math.max(6000, totalDeadline - Date.now());
         const Tesseract = await import("tesseract.js");
         const ocrRes = await Promise.race([
           Tesseract.recognize(buf, "spa+eng"),
-          new Promise<null>((r) => setTimeout(() => r(null), 14000)),
+          new Promise<null>((r) => setTimeout(() => r(null), ocrBudget)),
         ]);
         const cleanOcr = String((ocrRes as any)?.data?.text || "")
           .replace(/\r/g, "")
@@ -549,4 +764,30 @@ Analiza el contenido de este archivo técnico (${fileName || mimeType}): extrae 
     console.error("[vision] analyzeMedia exception:", err?.message);
     return null;
   }
+}
+
+/**
+ * Analiza cualquier archivo multimedia con deduplicación en vuelo, carrera paralela de proveedores
+ * y presupuesto garantizado para respaldo OCR local.
+ */
+export async function analyzeMedia(
+  mediaUrl: string,
+  mediaType?: string,
+  userText = "",
+  fileName = "",
+  maxTotalMs = 20000
+): Promise<string | null> {
+  if (!mediaUrl || typeof mediaUrl !== "string") return null;
+
+  const cached = getCachedVision(mediaUrl);
+  if (cached) return cached;
+
+  const existing = inflightVision.get(mediaUrl);
+  if (existing) return existing;
+
+  const p = runAnalyzeMediaInternal(mediaUrl, mediaType, userText, fileName, maxTotalMs).finally(() => {
+    inflightVision.delete(mediaUrl);
+  });
+  inflightVision.set(mediaUrl, p);
+  return p;
 }

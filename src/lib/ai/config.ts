@@ -227,7 +227,7 @@ export interface GenerateOptions {
 const modelCooldownUntil = new Map<string, number>();
 const COOLDOWN_DEAD_MS = 30 * 60_000;  // 30 minutos para 402 / 404 / 410 (sin saldo o modelo retirado)
 const COOLDOWN_RATE_MS = 10 * 60_000;  // 10 minutos para 429 (límite de tasa/cuota)
-const COOLDOWN_ERROR_MS = 90_000;      // 90 segundos para 5xx / timeout / red
+const COOLDOWN_ERROR_MS = 180_000;     // 3 minutos para 5xx / timeout / red
 
 export function isModelCooledDown(key: string): boolean {
   return (modelCooldownUntil.get(key) ?? 0) > Date.now();
@@ -287,7 +287,6 @@ export async function discoverProviderModels(
               "@cf/mistralai/mistral-small-3.1-24b-instruct",
               "@cf/meta/llama-4-scout-17b-16e-instruct",
               "@cf/qwen/qwen3.8-27b",
-              "@cf/meta/llama-3.2-11b-vision-instruct",
             ]
           : [
               "@cf/meta/llama-3.3-70b-instruct-fp8-fast",

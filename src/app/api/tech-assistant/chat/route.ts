@@ -1070,8 +1070,8 @@ export async function POST(req: NextRequest) {
                 }
               } else {
                 const result = await Promise.race([
-                  analyzeMedia(att.mediaUrl, att.mediaType, att.content || "", att.fileName || ""),
-                  new Promise<null>((r) => setTimeout(() => r(null), 40000)),
+                  analyzeMedia(att.mediaUrl, att.mediaType, att.content || "", att.fileName || "", 24000),
+                  new Promise<null>((r) => setTimeout(() => r(null), 32000)),
                 ]);
                 if (result) {
                   const patch = (m: any) => (m.mediaUrl === att.mediaUrl ? { ...m, _visionAnalysis: result } : m);
@@ -1220,8 +1220,8 @@ export async function POST(req: NextRequest) {
     if (mediaUrl) {
       try {
         const result = await Promise.race([
-          analyzeMedia(mediaUrl, mediaType, message, fileName),
-          new Promise<null>((r) => setTimeout(() => r(null), 25000)),
+          analyzeMedia(mediaUrl, mediaType, message, fileName, 22000),
+          new Promise<null>((r) => setTimeout(() => r(null), 28000)),
         ]);
         if (result) {
           techMediaAnalysis = result;
