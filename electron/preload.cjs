@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   notificarMensajeInterno: (data) => ipcRenderer.send('notificar-mensaje-interno', data),
   notificarRecordatorio: (data) => ipcRenderer.send('notificar-recordatorio', data),
   abrirImpersonar    : (url, nombre) => ipcRenderer.send('abrir-impersonar', { url, nombre }),
+  reconectarServidor : () => ipcRenderer.send('reconectar-servidor'),
   activityStart      : (email, name) => ipcRenderer.send('activity-start', { email, name }),
   activityStop       : () => ipcRenderer.send('activity-stop'),
 });

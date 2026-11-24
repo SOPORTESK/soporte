@@ -100,11 +100,43 @@ try {
 try { screenshot = require('screenshot-desktop'); } catch (e) { console.log('[tracker] screenshot-desktop no disponible:', e.message); }
 try { Database = require('better-sqlite3'); } catch (e) { console.log('[tracker] better-sqlite3 no disponible:', e.message); }
 
+const {
+  resolveActiveServerUrl,
+  getCachedServerUrl,
+  setCachedServerUrl,
+} = require('./server-resolver.cjs');
+
 const isDev = process.env.NODE_ENV === 'development';
-const ACTIVITY_API = isDev ? 'http://localhost:3100/api/activity/log' : 'https://sekachat.vercel.app/api/activity/log';
-const SCREENSHOT_API = isDev ? 'http://localhost:3100/api/activity/screenshot' : 'https://sekachat.vercel.app/api/activity/screenshot';
-const SCHEDULE_API_LOCAL = 'http://localhost:3100/api/activity/schedule';
-const SCHEDULE_API_PROD = 'https://sekachat.vercel.app/api/activity/schedule';
+let _serverBaseUrl = isDev ? 'http://localhost:3100' : (getCachedServerUrl() || 'http://localhost:3100');
+let _lastResolveAttemptAt = 0;
+
+function setServerBaseUrl(url) {
+  if (!url || typeof url !== 'string') return;
+  const clean = url.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\//i.test(clean)) return;
+  _serverBaseUrl = clean;
+  setCachedServerUrl(clean);
+}
+
+function getServerBaseUrl() {
+  if (isDev) return 'http://localhost:3100';
+  return _serverBaseUrl || getCachedServerUrl() || 'http://localhost:3100';
+}
+
+async function refreshServerUrlThrottled() {
+  if (isDev) return getServerBaseUrl();
+  if (Date.now() - _lastResolveAttemptAt < 45_000) return getServerBaseUrl();
+  _lastResolveAttemptAt = Date.now();
+  try {
+    const resolved = await resolveActiveServerUrl({ forceRefresh: true });
+    if (resolved) setServerBaseUrl(resolved);
+  } catch {}
+  return getServerBaseUrl();
+}
+
+function shouldRefreshOnStatus(status) {
+  return status === 402 || status === 502 || status === 503 || status === 530;
+}
 
 const POLL_INTERVAL = 5000;            // 5s — polling ventana activa
 const KEYLOG_FLUSH_INTERVAL = 30000;   // 30s — flush keystrokes
@@ -118,7 +150,8 @@ const MASK_PASSWORDS = false;          // true = enmascara teclas en ventanas co
 
 async function refreshToleranceConfig() {
   const qs = _agentEmail ? `?agentEmail=${encodeURIComponent(_agentEmail)}` : '';
-  for (const baseUrl of [SCHEDULE_API_LOCAL, SCHEDULE_API_PROD]) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const baseUrl = `${getServerBaseUrl()}/api/activity/schedule`;
     try {
       const res = await fetch(`${baseUrl}${qs}`, { signal: AbortSignal.timeout(4000) });
       if (res.ok) {
@@ -131,7 +164,10 @@ async function refreshToleranceConfig() {
           return;
         }
       }
-    } catch {}
+      if (attempt === 0) await refreshServerUrlThrottled();
+    } catch {
+      if (attempt === 0) await refreshServerUrlThrottled();
+    }
   }
 }
 
@@ -485,14 +521,17 @@ async function sendLog(action, category, metadata, createdAt = null, fromSyncQue
   };
   // Intentar enviar directo; si falla y NO viene ya de la cola SQLite, guardar en SQLite para sync posterior
   try {
-    const res = await fetch(ACTIVITY_API, {
+    const res = await fetch(`${getServerBaseUrl()}/api/activity/log`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(10000),
     });
     if (res.ok) return true;
-  } catch (e) { /* offline o timeout */ }
+    if (shouldRefreshOnStatus(res.status)) refreshServerUrlThrottled().catch(() => {});
+  } catch (e) {
+    refreshServerUrlThrottled().catch(() => {});
+  }
   if (!fromSyncQueue) {
     saveToDB('log', action, category, metadata, null);
   }
@@ -519,12 +558,15 @@ async function syncDB() {
           if (fs.existsSync(row.screenshot_path)) {
             const imgBuffer = fs.readFileSync(row.screenshot_path);
             const b64 = imgBuffer.toString('base64');
-            const res = await fetch(SCREENSHOT_API, {
+            const res = await fetch(`${getServerBaseUrl()}/api/activity/screenshot`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ image: b64, agent_email: _agentEmail, timestamp: row.created_at }),
               signal: AbortSignal.timeout(30000),
             });
+            if (!res.ok && shouldRefreshOnStatus(res.status)) {
+              refreshServerUrlThrottled().catch(() => {});
+            }
             if (res.ok) {
               const data = await res.json();
               const meta = JSON.parse(row.metadata || '{}');
@@ -564,7 +606,7 @@ async function pollActivity() {
   if (!_agentEmail) return;
   try {
     const idleThresholdMs = Math.max(1, _toleranceMinutes) * 60 * 1000;
-    const now = Date.now();
+    let now = Date.now();
     // Idle detection via powerMonitor
     const idleSec = powerMonitor.getSystemIdleTime ? powerMonitor.getSystemIdleTime() : 0;
     if (idleSec * 1000 >= idleThresholdMs && !_isIdle) {
@@ -704,7 +746,7 @@ async function pollActivity() {
     const appName = win.owner?.name || 'Unknown';
     const title = win.title || '';
     const url = win.url || '';
-    const now = Date.now();
+    now = Date.now();
 
     const curCatInfo = categorizeApp(appName, title, url);
     const lastCatInfo = _lastApp ? categorizeApp(_lastApp, _lastTitle, _lastUrl) : null;
@@ -857,7 +899,7 @@ async function takeScreenshot() {
     // Intentar subir directo; si falla, guardar en SQLite para sync
     try {
       const b64 = imgBuffer.toString('base64');
-      const res = await fetch(SCREENSHOT_API, {
+      const res = await fetch(`${getServerBaseUrl()}/api/activity/screenshot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: b64, agent_email: _agentEmail, timestamp: new Date().toISOString() }),
@@ -870,7 +912,10 @@ async function takeScreenshot() {
         fs.unlinkSync(filePath); // borrar local si se subió
         return;
       }
-    } catch (e) { /* offline */ }
+      if (shouldRefreshOnStatus(res.status)) refreshServerUrlThrottled().catch(() => {});
+    } catch (e) {
+      refreshServerUrlThrottled().catch(() => {});
+    }
 
     // Guardar para sync posterior
     const { category, label } = categorizeApp(_lastApp, _lastTitle);
@@ -968,4 +1013,4 @@ function stopDesktopTracking() {
   console.log('[tracker] Tracking detenido');
 }
 
-module.exports = { startDesktopTracking, stopDesktopTracking };
+module.exports = { startDesktopTracking, stopDesktopTracking, setServerBaseUrl };

@@ -25,16 +25,18 @@ app.commandLine.appendSwitch('disable-gpu');
 app.commandLine.appendSwitch('disable-software-rasterizer');
 
 // ─── ACTIVITY TRACKER (global desktop-level) ──────────────────────────────────
-const { startDesktopTracking, stopDesktopTracking } = require('./tracker.cjs');
+const { resolveActiveServerUrl, isAppOrigin } = require('./server-resolver.cjs');
+const { startDesktopTracking, stopDesktopTracking, setServerBaseUrl } = require('./tracker.cjs');
 
 // IPC para recibir el email del agente desde la web
 ipcMain.on('activity-start', (_, { email, name }) => startDesktopTracking(email, name));
 ipcMain.on('activity-stop', () => stopDesktopTracking());
 
-const PROD_URL = 'https://sekachat.vercel.app';
-const DEV_URL  = 'http://localhost:3100';
-
+const DEV_URL = 'http://localhost:3100';
 const isDev = !app.isPackaged && process.env.NODE_ENV === 'development';
+
+let _activeServerUrl = null;
+let _reconnecting = false;
 
 const APP_ICON = fs.existsSync(path.join(__dirname, '../public/logo.ico'))
   ? path.join(__dirname, '../public/logo.ico')
@@ -73,19 +75,28 @@ function getErrorHTML(url, errorDesc) {
         <div class="card">
           <div class="icon">⚡</div>
           <h2>Conectando con Soporte Sekunet</h2>
-          <p>No se pudo conectar inmediatamente con el servidor (${errorDesc}). Reintentando automáticamente...</p>
+          <p>No se pudo conectar inmediatamente con el servidor de Soporte Sekunet (${errorDesc}). Verificando enlace activo y reintentando automáticamente...</p>
           <div class="btn-group">
-            <button onclick="window.location.href='${PROD_URL}'">Ir a Producción (Vercel)</button>
-            <button class="btn-sec" onclick="window.location.href='${DEV_URL}'">Reintentar Local</button>
+            <button onclick="if(window.electronAPI&&window.electronAPI.reconectarServidor){window.electronAPI.reconectarServidor();}else{window.location.reload();}">Reconectar ahora</button>
+            <button class="btn-sec" onclick="window.location.href='${DEV_URL}'">Abrir servidor local</button>
           </div>
-          <div class="timer" id="count">Reintentando en <span id="sec">5</span> segundos...</div>
+          <div class="timer" id="count">Reintentando en <span id="sec">6</span> segundos...</div>
         </div>
         <script>
-          let s = 5;
+          let s = 6;
           setInterval(() => {
             s--;
-            if (s > 0) document.getElementById('sec').innerText = s;
-            else window.location.href = '${PROD_URL}';
+            if (s > 0) {
+              document.getElementById('sec').innerText = s;
+            } else {
+              s = 6;
+              document.getElementById('sec').innerText = s;
+              if (window.electronAPI && window.electronAPI.reconectarServidor) {
+                window.electronAPI.reconectarServidor();
+              } else {
+                window.location.reload();
+              }
+            }
           }, 1000);
         </script>
       </body>
@@ -93,7 +104,25 @@ function getErrorHTML(url, errorDesc) {
   `);
 }
 
-function createWindow() {
+async function reconnectToActiveServer() {
+  if (_reconnecting) return;
+  _reconnecting = true;
+  try {
+    const freshUrl = isDev ? DEV_URL : await resolveActiveServerUrl({ forceRefresh: true });
+    _activeServerUrl = freshUrl;
+    setServerBaseUrl(freshUrl);
+    console.log(`[electron] Reconectando ventana principal a ${freshUrl}...`);
+    if (win && !win.isDestroyed()) {
+      win.loadURL(freshUrl);
+    }
+  } catch (e) {
+    console.error('[electron] Error reconectando al servidor activo:', e.message);
+  } finally {
+    _reconnecting = false;
+  }
+}
+
+async function createWindow() {
   win = new BrowserWindow({
     width          : 1400,
     height         : 900,
@@ -116,7 +145,9 @@ function createWindow() {
     win.show();
   });
 
-  const targetURL = isDev ? DEV_URL : PROD_URL;
+  const targetURL = isDev ? DEV_URL : await resolveActiveServerUrl({ forceRefresh: true });
+  _activeServerUrl = targetURL;
+  setServerBaseUrl(targetURL);
 
   // Cargar URL
   const ses = win.webContents.session;
@@ -148,7 +179,7 @@ function createWindow() {
 
   // Links externos se abren en el navegador del sistema
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (!url.startsWith('https://sekachat.vercel.app') && !url.startsWith('http://localhost')) {
+    if (!isAppOrigin(url)) {
       shell.openExternal(url);
       return { action: 'deny' };
     }
@@ -157,19 +188,17 @@ function createWindow() {
 
   // ─── MANEJO DE ERRORES Y AUTO-RECUPERACIÓN ─────────────────────────────────
   let reloadAttempts = 0;
-  const MAX_RELOAD_ATTEMPTS = 5;
 
   win.webContents.on('did-fail-load', (_, errorCode, errorDescription, validatedURL) => {
-    if (errorCode === -3) return; // ERR_ABORTED — navegación normal
+    if (errorCode === -3 || (validatedURL && validatedURL.startsWith('data:'))) return; // ERR_ABORTED / pantalla interna
     console.error(`[did-fail-load] ${errorCode}: ${errorDescription} | URL: ${validatedURL}`);
-    
-    // Si falló el localhost, cambiar a producción automáticamente
-    if (validatedURL.includes('localhost') && reloadAttempts < 2) {
+
+    if (reloadAttempts < 2) {
       reloadAttempts++;
-      console.log('[electron] Localhost no disponible, cambiando a producción (Vercel)...');
+      console.log('[electron] Reintentando resolver servidor activo automáticamente...');
       setTimeout(() => {
-        if (win && !win.isDestroyed()) win.loadURL(PROD_URL);
-      }, 1000);
+        reconnectToActiveServer();
+      }, 1500);
       return;
     }
 
@@ -180,6 +209,16 @@ function createWindow() {
   });
 
   win.webContents.on('did-finish-load', () => {
+    const loadedUrl = win && !win.isDestroyed() ? win.webContents.getURL() : '';
+    if (!loadedUrl || loadedUrl.startsWith('data:')) return;
+    const title = win.webContents.getTitle() || '';
+    if (/530|502|503|deployment.*paused|argo tunnel|error 1033|origin.*unreachable/i.test(title)) {
+      console.warn(`[electron] Detectada página de error (${title}); re-resolviendo servidor activo en 5s...`);
+      setTimeout(() => {
+        reconnectToActiveServer();
+      }, 5000);
+      return;
+    }
     reloadAttempts = 0;
   });
 
@@ -187,9 +226,7 @@ function createWindow() {
   win.webContents.on('render-process-gone', (_, details) => {
     console.error(`[render-process-gone] reason: ${details.reason} | exitCode: ${details.exitCode}`);
     setTimeout(() => {
-      if (win && !win.isDestroyed()) {
-        win.loadURL(PROD_URL);
-      }
+      reconnectToActiveServer();
     }, 2000);
   });
 
@@ -242,6 +279,7 @@ function setupAutoUpdater() {
 
 // ─── IPC ──────────────────────────────────────────────────────────────────────
 ipcMain.on('recargar', () => win?.webContents.reload());
+ipcMain.on('reconectar-servidor', () => { reconnectToActiveServer(); });
 
 ipcMain.on('abrir-impersonar', (_, { url, nombre }) => {
   const impWin = new BrowserWindow({
@@ -258,7 +296,7 @@ ipcMain.on('abrir-impersonar', (_, { url, nombre }) => {
   });
   impWin.loadURL(url);
   impWin.webContents.setWindowOpenHandler(({ url: u }) => {
-    if (!u.startsWith('https://sekachat.vercel.app') && !u.startsWith('http://localhost')) { 
+    if (!isAppOrigin(u)) { 
       shell.openExternal(u); 
       return { action: 'deny' }; 
     }
@@ -349,19 +387,19 @@ ipcMain.on('notificar-recordatorio', (_, data) => {
 });
 
 // ─── APP READY ────────────────────────────────────────────────────────────────
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
         'Content-Security-Policy': [
-          "default-src 'self' 'unsafe-inline' 'unsafe-eval' https: wss: data: blob:;"
+          "default-src 'self' 'unsafe-inline' 'unsafe-eval' http: https: ws: wss: data: blob:;"
         ],
       },
     });
   });
 
-  createWindow();
+  await createWindow();
   setupAutoUpdater();
 
   const menu = Menu.buildFromTemplate([
@@ -373,6 +411,7 @@ app.whenReady().then(() => {
         { type: 'separator' },
         { label: '⟳ Recargar',        accelerator: 'F5',        click: () => win?.webContents.reload() },
         { label: 'Recargar sin caché', accelerator: 'Shift+F5', click: () => win?.webContents.reloadIgnoringCache() },
+        { label: '🔄 Reconectar al servidor', click: () => reconnectToActiveServer() },
       ],
     },
     {
