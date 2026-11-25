@@ -55,6 +55,7 @@ const caseStatusListeners = new Set<StatusListener>();
 let casesChannel: any = null;
 let casesClientRef: SupabaseClient | null = null;
 let casesLastStatus = "";
+let casesConnectingSince = 0;
 let casesHasSubscribedOnce = false;
 let casesTeardownTimer: ReturnType<typeof setTimeout> | null = null;
 let casesReconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -63,15 +64,22 @@ const agentListeners = new Set<AgentEventListener>();
 let agentsChannel: any = null;
 let agentsClientRef: SupabaseClient | null = null;
 let agentsLastStatus = "";
+let agentsConnectingSince = 0;
 let agentsTeardownTimer: ReturnType<typeof setTimeout> | null = null;
 let agentsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 let windowRecoveryAttached = false;
+let authRecoveryAttached = false;
 let healthCheckTimer: ReturnType<typeof setInterval> | null = null;
 let lastUserInteractionAt = Date.now();
 let lastMouseTouchMarkAt = 0;
 let lastHiddenAt = 0;
 const DEAD_STATUSES = new Set(["CLOSED", "CHANNEL_ERROR", "TIMED_OUT"]);
+
+export function isTabVisible(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.visibilityState === "visible";
+}
 
 export function isUserActivelyViewing(idleMs = 15 * 60_000): boolean {
   if (typeof document === "undefined") return false;
@@ -79,9 +87,22 @@ export function isUserActivelyViewing(idleMs = 15 * 60_000): boolean {
   return Date.now() - lastUserInteractionAt < idleMs;
 }
 
-function isChannelHealthy(channel: any, client: SupabaseClient | null, lastStatus: string): boolean {
+function isChannelHealthy(
+  channel: any,
+  client: SupabaseClient | null,
+  lastStatus: string,
+  connectingSince: number
+): boolean {
   if (!channel || !client) return false;
-  if (DEAD_STATUSES.has(lastStatus) || lastStatus !== "SUBSCRIBED") return false;
+  if (DEAD_STATUSES.has(lastStatus)) return false;
+  if (lastStatus === "") {
+    return (
+      connectingSince > 0 &&
+      Date.now() - connectingSince < 8000 &&
+      channel.state === "joining"
+    );
+  }
+  if (lastStatus !== "SUBSCRIBED") return false;
   const rtConnected = typeof (client as any)?.realtime?.isConnected === "function"
     ? (client as any).realtime.isConnected()
     : true;
@@ -90,7 +111,26 @@ function isChannelHealthy(channel: any, client: SupabaseClient | null, lastStatu
   return true;
 }
 
-function attachWindowRecovery() {
+function attachWindowRecovery(supabase?: SupabaseClient) {
+  if (supabase && !authRecoveryAttached && typeof (supabase as any)?.auth?.onAuthStateChange === "function") {
+    authRecoveryAttached = true;
+    try {
+      (supabase as any).auth.onAuthStateChange((event: string) => {
+        if (event !== "TOKEN_REFRESHED" && event !== "SIGNED_IN") return;
+        if (caseListeners.size > 0 && casesClientRef && !isChannelHealthy(casesChannel, casesClientRef, casesLastStatus, casesConnectingSince)) {
+          ensureCasesChannel(casesClientRef, true);
+        } else if (casesLastStatus === "SUBSCRIBED" && typeof window !== "undefined") {
+          try {
+            window.dispatchEvent(new CustomEvent("cases_realtime_reconnected"));
+          } catch {}
+        }
+        if (agentListeners.size > 0 && agentsClientRef && !isChannelHealthy(agentsChannel, agentsClientRef, agentsLastStatus, agentsConnectingSince)) {
+          ensureAgentsChannel(agentsClientRef, true);
+        }
+      });
+    } catch {}
+  }
+
   if (windowRecoveryAttached || typeof window === "undefined") return;
   windowRecoveryAttached = true;
   lastUserInteractionAt = Date.now();
@@ -108,10 +148,10 @@ function attachWindowRecovery() {
 
   const recoverIfNeeded = () => {
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-    if (caseListeners.size > 0 && casesClientRef && !isChannelHealthy(casesChannel, casesClientRef, casesLastStatus)) {
+    if (caseListeners.size > 0 && casesClientRef && !isChannelHealthy(casesChannel, casesClientRef, casesLastStatus, casesConnectingSince)) {
       ensureCasesChannel(casesClientRef, true);
     }
-    if (agentListeners.size > 0 && agentsClientRef && !isChannelHealthy(agentsChannel, agentsClientRef, agentsLastStatus)) {
+    if (agentListeners.size > 0 && agentsClientRef && !isChannelHealthy(agentsChannel, agentsClientRef, agentsLastStatus, agentsConnectingSince)) {
       ensureAgentsChannel(agentsClientRef, true);
     }
   };
@@ -137,6 +177,10 @@ function attachWindowRecovery() {
   window.addEventListener("keydown", markActive, { passive: true });
   window.addEventListener("mousemove", markActiveThrottled, { passive: true });
   window.addEventListener("scroll", markActiveThrottled, { passive: true, capture: true });
+  window.addEventListener("pageshow", () => {
+    lastUserInteractionAt = Date.now();
+    recoverIfNeeded();
+  });
   window.addEventListener("online", () => {
     lastUserInteractionAt = Date.now();
     recoverIfNeeded();
@@ -163,7 +207,7 @@ function scheduleCasesReconnect() {
 }
 
 function ensureCasesChannel(supabase: SupabaseClient, forceReconnect = false) {
-  attachWindowRecovery();
+  attachWindowRecovery(supabase);
   if (casesTeardownTimer) {
     clearTimeout(casesTeardownTimer);
     casesTeardownTimer = null;
@@ -183,9 +227,11 @@ function ensureCasesChannel(supabase: SupabaseClient, forceReconnect = false) {
     } catch {}
     casesChannel = null;
     casesLastStatus = "";
+    casesConnectingSince = 0;
   }
 
   casesClientRef = supabase;
+  casesConnectingSince = Date.now();
   const createdChannel = supabase
     .channel(CASES_TOPIC, { config: { broadcast: { self: true } } })
     .on("broadcast", { event: CASES_EVENT }, (msg: any) => {
@@ -198,30 +244,32 @@ function ensureCasesChannel(supabase: SupabaseClient, forceReconnect = false) {
           console.error("[cases-realtime-bus] listener error:", err);
         }
       });
-    })
-    .subscribe((status: string) => {
-      if (casesChannel !== createdChannel) return;
-      casesLastStatus = status;
-      if (status === "SUBSCRIBED") {
-        if (casesHasSubscribedOnce && typeof window !== "undefined") {
-          try {
-            window.dispatchEvent(new CustomEvent("cases_realtime_reconnected"));
-          } catch {}
-        }
-        casesHasSubscribedOnce = true;
-      }
-      caseStatusListeners.forEach((cb) => {
-        try {
-          cb(status);
-        } catch (err) {
-          console.error("[cases-realtime-bus] status listener error:", err);
-        }
-      });
-      if (DEAD_STATUSES.has(status) && caseListeners.size > 0) {
-        scheduleCasesReconnect();
-      }
     });
   casesChannel = createdChannel;
+  createdChannel.subscribe((status: string) => {
+    if (casesChannel !== createdChannel) return;
+    casesLastStatus = status;
+    if (status === "SUBSCRIBED") {
+      casesConnectingSince = 0;
+      if (casesHasSubscribedOnce && typeof window !== "undefined") {
+        try {
+          window.dispatchEvent(new CustomEvent("cases_realtime_reconnected"));
+        } catch {}
+      }
+      casesHasSubscribedOnce = true;
+    }
+    caseStatusListeners.forEach((cb) => {
+      try {
+        cb(status);
+      } catch (err) {
+        console.error("[cases-realtime-bus] status listener error:", err);
+      }
+    });
+    if (DEAD_STATUSES.has(status) && caseListeners.size > 0) {
+      casesConnectingSince = 0;
+      scheduleCasesReconnect();
+    }
+  });
 }
 
 function scheduleCasesTeardown() {
@@ -236,6 +284,7 @@ function scheduleCasesTeardown() {
       casesChannel = null;
       casesClientRef = null;
       casesLastStatus = "";
+      casesConnectingSince = 0;
     }
   }, 400);
 }
@@ -283,7 +332,7 @@ function scheduleAgentsReconnect() {
 }
 
 function ensureAgentsChannel(supabase: SupabaseClient, forceReconnect = false) {
-  attachWindowRecovery();
+  attachWindowRecovery(supabase);
   if (agentsTeardownTimer) {
     clearTimeout(agentsTeardownTimer);
     agentsTeardownTimer = null;
@@ -303,9 +352,11 @@ function ensureAgentsChannel(supabase: SupabaseClient, forceReconnect = false) {
     } catch {}
     agentsChannel = null;
     agentsLastStatus = "";
+    agentsConnectingSince = 0;
   }
 
   agentsClientRef = supabase;
+  agentsConnectingSince = Date.now();
   const createdChannel = supabase
     .channel(AGENTS_TOPIC, { config: { broadcast: { self: true } } })
     .on("broadcast", { event: AGENTS_EVENT }, (msg: any) => {
@@ -318,15 +369,19 @@ function ensureAgentsChannel(supabase: SupabaseClient, forceReconnect = false) {
           console.error("[cases-realtime-bus] agent listener error:", err);
         }
       });
-    })
-    .subscribe((status: string) => {
-      if (agentsChannel !== createdChannel) return;
-      agentsLastStatus = status;
-      if (DEAD_STATUSES.has(status) && agentListeners.size > 0) {
-        scheduleAgentsReconnect();
-      }
     });
   agentsChannel = createdChannel;
+  createdChannel.subscribe((status: string) => {
+    if (agentsChannel !== createdChannel) return;
+    agentsLastStatus = status;
+    if (status === "SUBSCRIBED") {
+      agentsConnectingSince = 0;
+    }
+    if (DEAD_STATUSES.has(status) && agentListeners.size > 0) {
+      agentsConnectingSince = 0;
+      scheduleAgentsReconnect();
+    }
+  });
 }
 
 function scheduleAgentsTeardown() {
@@ -341,6 +396,7 @@ function scheduleAgentsTeardown() {
       agentsChannel = null;
       agentsClientRef = null;
       agentsLastStatus = "";
+      agentsConnectingSince = 0;
     }
   }, 400);
 }

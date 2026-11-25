@@ -122,35 +122,51 @@ async function postRealtimeBroadcast(
   if (!supabaseUrl || !serviceKey) return false;
 
   const BATCH_SIZE = 50;
+  const RETRY_DELAYS_MS = [300, 900];
   let allOk = true;
 
   for (let i = 0; i < messages.length; i += BATCH_SIZE) {
     const batch = messages.slice(i, i + BATCH_SIZE);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
-    try {
-      const res = await fetch(`${supabaseUrl}/realtime/v1/api/broadcast`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: serviceKey,
-          Authorization: `Bearer ${serviceKey}`,
-        },
-        body: JSON.stringify({ messages: batch }),
-        signal: controller.signal,
-        cache: "no-store",
-      });
-      if (!res.ok) {
-        allOk = false;
+    const bodyJson = JSON.stringify({ messages: batch });
+    let batchOk = false;
+
+    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      try {
+        const res = await fetch(`${supabaseUrl}/realtime/v1/api/broadcast`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: serviceKey,
+            Authorization: `Bearer ${serviceKey}`,
+          },
+          body: bodyJson,
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        if (res.ok) {
+          batchOk = true;
+          break;
+        }
         const errText = await res.text().catch(() => "");
-        console.warn(`[realtime-broadcast] HTTP ${res.status}: ${errText.slice(0, 150)}`);
+        const retryable = res.status >= 500 || res.status === 429;
+        if (!retryable || attempt === RETRY_DELAYS_MS.length) {
+          console.warn(`[realtime-broadcast] HTTP ${res.status}: ${errText.slice(0, 150)}`);
+          break;
+        }
+      } catch (err: any) {
+        if (attempt === RETRY_DELAYS_MS.length) {
+          console.warn("[realtime-broadcast] error:", err?.message || err);
+          break;
+        }
+      } finally {
+        clearTimeout(timer);
       }
-    } catch (err: any) {
-      allOk = false;
-      console.warn("[realtime-broadcast] error:", err?.message || err);
-    } finally {
-      clearTimeout(timer);
+      await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
     }
+
+    if (!batchOk) allOk = false;
   }
 
   return allOk;

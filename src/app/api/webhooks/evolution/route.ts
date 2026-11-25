@@ -2277,7 +2277,6 @@ export async function POST(req: NextRequest) {
               last_message_at: msgTime,
               last_message_preview: previewText.slice(0, 200),
               customer_phone: phone || jid,
-              updated_at: new Date().toISOString(),
             },
             old: { estado: existing.estado },
             delta: { col: "histtecnico", entry },
@@ -2311,7 +2310,6 @@ export async function POST(req: NextRequest) {
               last_message_at: msgTime,
               last_message_preview: previewText.slice(0, 200),
               customer_phone: phone || jid,
-              updated_at: new Date().toISOString(),
             },
             old: { estado: existing.estado },
             delta: { col: "histcliente", entry },
@@ -2837,7 +2835,7 @@ export async function POST(req: NextRequest) {
             eventType: "INSERT",
             action: "insert",
             caseId: String(claimed.caseId),
-            new: { id: claimed.caseId, canal: "whatsapp", ...horarioPayload },
+            new: { id: claimed.caseId, canal: "whatsapp", created_at: new Date().toISOString(), ...horarioPayload },
           });
           return NextResponse.json({ ok: true, unattended: true, fueraHorario: true });
         }
@@ -2877,7 +2875,7 @@ export async function POST(req: NextRequest) {
             eventType: "INSERT",
             action: "insert",
             caseId: String(newCase.id),
-            new: { id: newCase.id, canal: "whatsapp", ...horarioPayload },
+            new: { id: newCase.id, canal: "whatsapp", created_at: new Date().toISOString(), ...horarioPayload },
           });
         }
         return NextResponse.json({ ok: true, unattended: true, fueraHorario: true });
@@ -2919,7 +2917,6 @@ export async function POST(req: NextRequest) {
                 last_message_at: msgTime,
                 last_message_preview: previewText.slice(0, 200),
                 customer_phone: phone || jid,
-                updated_at: new Date().toISOString(),
               },
               old: { estado: "escalado" },
               delta: { col: "histcliente", entry },
@@ -2974,7 +2971,7 @@ export async function POST(req: NextRequest) {
             eventType: "INSERT",
             action: "insert",
             caseId: String(claimed.caseId),
-            new: { id: claimed.caseId, canal: "whatsapp", ...unattPayload },
+            new: { id: claimed.caseId, canal: "whatsapp", created_at: new Date().toISOString(), unread_count: 1, ...unattPayload },
           });
           return NextResponse.json({ ok: true, unattended: true });
         }
@@ -3013,7 +3010,7 @@ export async function POST(req: NextRequest) {
             eventType: "INSERT",
             action: "insert",
             caseId: String(newCase.id),
-            new: { id: newCase.id, canal: "whatsapp", ...unattPayload },
+            new: { id: newCase.id, canal: "whatsapp", created_at: new Date().toISOString(), unread_count: 1, ...unattPayload },
           });
         }
         return NextResponse.json({ ok: true, unattended: true });
@@ -3056,7 +3053,6 @@ export async function POST(req: NextRequest) {
               last_message_at: msgTime,
               last_message_preview: previewText.slice(0, 200),
               customer_phone: phone || jid,
-              updated_at: new Date().toISOString(),
             },
             old: { estado: "ia_atendiendo" },
             delta: { col: "histcliente", entry },
@@ -3095,7 +3091,7 @@ export async function POST(req: NextRequest) {
           eventType: "INSERT",
           action: "insert",
           caseId: String(nuevoCaseId),
-          new: { id: nuevoCaseId, canal: "whatsapp", ...iaPayload },
+          new: { id: nuevoCaseId, canal: "whatsapp", created_at: new Date().toISOString(), unread_count: 1, ...iaPayload },
         });
       }
 

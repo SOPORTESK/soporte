@@ -2,7 +2,7 @@
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { subscribeCasesRealtime, isUserActivelyViewing } from "@/lib/cases-realtime-bus";
+import { subscribeCasesRealtime, isTabVisible } from "@/lib/cases-realtime-bus";
 import type { SekCase, SekHistEntry } from "@/lib/types";
 import { ConversationList } from "./conversation-list";
 import { ChatView, invalidateCaseHistoryCache } from "./chat-view";
@@ -390,8 +390,12 @@ export function InboxClient({
   const selectedIdRef = React.useRef<string | null>(initialSelectedId);
   const agentEmailRef = React.useRef<string | null>(null);
   const agentNameRef = React.useRef<string | null>(null);
+  const isUserAdminRef = React.useRef<boolean>(isUserAdmin);
+  const adminFilterModeRef = React.useRef<"mine" | "all" | string>(adminFilterMode);
 
   React.useEffect(() => { allCasesRef.current = allCases; }, [allCases]);
+  React.useEffect(() => { isUserAdminRef.current = isUserAdmin; }, [isUserAdmin]);
+  React.useEffect(() => { adminFilterModeRef.current = adminFilterMode; }, [adminFilterMode]);
   React.useEffect(() => {
     if (initialCases === prevInitialCasesRef.current) return;
     prevInitialCasesRef.current = initialCases;
@@ -597,6 +601,34 @@ export function InboxClient({
     );
     const exists = isGroupKey || (Boolean(matchedCase) && !isStaleEscalatedInGestion);
     if (exists) {
+      const cleanTel = id.startsWith("tel:") ? id.substring(4).replace(/[^0-9]/g, "") : "";
+      const clearMatchUnread = (list: SekCase[]) => {
+        let changed = false;
+        const next = list.map((c) => {
+          const matchesId =
+            String(c.id) === id ||
+            Boolean((c as any)._group?.caseIds?.some((cid: any) => String(cid) === id)) ||
+            Boolean(cleanTel && String(c.customer_phone || "").replace(/[^0-9]/g, "").endsWith(cleanTel.slice(-8)));
+          if (matchesId && (Number(c.unread_count) || 0) > 0) {
+            changed = true;
+            return { ...c, unread_count: 0 };
+          }
+          return c;
+        });
+        return changed ? next : list;
+      };
+      const nextAll = clearMatchUnread(allCasesRef.current);
+      if (nextAll !== allCasesRef.current) {
+        allCasesRef.current = nextAll;
+        setAllCases(nextAll);
+      }
+      const nextCases = clearMatchUnread(casesRef.current);
+      if (nextCases !== casesRef.current) {
+        casesRef.current = nextCases;
+        setCases(nextCases);
+        prevCasesRef.current = nextCases;
+        prevMergedRef.current = mergeGroups(nextCases);
+      }
       setSelectedId(id);
     } else {
       // No está en lista (o vino con estado viejo de caché): marcar pendiente y cargarlo desde Supabase
@@ -607,7 +639,7 @@ export function InboxClient({
 
       query.then(({ data }) => {
         if (data) {
-          const row = data as unknown as SekCase;
+          const row = { ...(data as unknown as SekCase), unread_count: 0 };
           const nextCases = [row, ...casesRef.current.filter(c => String(c.id) !== String(row.id))];
           casesRef.current = nextCases;
           setCases(nextCases);
@@ -731,17 +763,23 @@ export function InboxClient({
 
             for (const ev of batch) {
               if (ev.eventType === "INSERT") {
-                const ins = ev.new as SekCase;
-                const insId = String(ev.caseId || ins?.id || "");
+                const rawIns = ev.new as SekCase;
+                const insId = String(ev.caseId || rawIns?.id || "");
                 if (insId) invalidateCaseHistoryCache(insId);
-                if (ins && ins.canal !== "simulator" && !(ins as any).es_test) {
+                if (rawIns && rawIns.canal !== "simulator" && !(rawIns as any).es_test) {
+                  const estLower = String(rawIns.estado || "").toLowerCase();
+                  const ins: SekCase = {
+                    ...rawIns,
+                    created_at: rawIns.created_at || rawIns.last_message_at || new Date().toISOString(),
+                    unread_count: rawIns.unread_count ?? (estLower === "cerrado" || estLower === "resuelto" ? 0 : 1),
+                  };
                   if (ins.id) {
                     nextAll = [ins, ...nextAll.filter(c => String(c.id) !== String(ins.id))];
                   }
                   if (insId && (!ins.id || !ins.canal || !ins.estado)) {
                     missingFetchIds.add(insId);
                   }
-                } else if (insId && !ins) {
+                } else if (insId && !rawIns) {
                   missingFetchIds.add(insId);
                 }
               } else if (ev.eventType === "UPDATE") {
@@ -842,7 +880,7 @@ export function InboxClient({
 
             // Si es Mi Gestión y aún no tenemos agentEmail, no filtrar todavía
             if (containerType !== "mi-gestion" || agentEmail) {
-              let filteredNewCases = filterCasesByContainer(nextAll, containerType, agentEmail, agentName, isUserAdmin, adminFilterMode);
+              let filteredNewCases = filterCasesByContainer(nextAll, containerType, agentEmail, agentName, isUserAdminRef.current, adminFilterModeRef.current);
 
               // Preservar caso seleccionado si está abierto
               const curSel = selectedIdRef.current;
@@ -993,7 +1031,7 @@ export function InboxClient({
                   setAllCases(mergedAll);
 
                   if (containerType !== "mi-gestion" || agentEmail) {
-                    let filtered = filterCasesByContainer(mergedAll, containerType, agentEmail, agentName, isUserAdmin, adminFilterMode);
+                    let filtered = filterCasesByContainer(mergedAll, containerType, agentEmail, agentName, isUserAdminRef.current, adminFilterModeRef.current);
                     const curSelNow = selectedIdRef.current;
                     if (curSelNow) {
                       const keptSel =
@@ -1036,11 +1074,12 @@ export function InboxClient({
 
     /* Refetch silencioso: reutilizado por polling y por focus/visibility */
     let lastRefetch = 0;
+    let lastFullOrDeltaSyncAt = Date.now();
     const doRefetch = async (force = false) => {
       // 1. Si la pestaña está oculta en segundo plano y no es forzado, no ejecutar (0 bytes en segundo plano)
       if (typeof document !== "undefined" && document.visibilityState === "hidden" && !force) return;
 
-      if (!force && Date.now() - lastRefetch < 2500) return; // throttle corto de 2.5s (chequeo liviano de ~100 bytes)
+      if (!force && Date.now() - lastRefetch < 1500) return; // throttle corto de 1.5s (chequeo liviano de ~100 bytes)
       lastRefetch = Date.now();
       try {
         if (containerType === "mi-gestion" && !agentEmail) return;
@@ -1068,12 +1107,30 @@ export function InboxClient({
           }
         }
 
+        const curIsAdmin = isUserAdminRef.current;
+        const curFilterMode = adminFilterModeRef.current;
         const fetchEmail = containerType === "mi-gestion" ? (agentEmail || undefined) : undefined;
         let newCases: SekCase[];
+        const dirtySelectedIds: string[] = [];
+        const newlyMessagedIds: string[] = [];
+        const matchesSelected = (c: any, curSel: string | null): boolean => {
+          if (!curSel) return false;
+          if (String(c.id) === curSel) return true;
+          if (c._group?.caseIds?.some((cid: any) => String(cid) === curSel)) return true;
+          if (curSel.startsWith("tel:")) {
+            const selDigits = curSel.substring(4).replace(/[^0-9]/g, "");
+            const rowDigits = String(c.customer_phone || (c.cliente as any)?.telefono || "").replace(/[^0-9]/g, "");
+            if (selDigits.length >= 8 && rowDigits.length >= 8) {
+              return rowDigits === selDigits || rowDigits.endsWith(selDigits.slice(-8)) || selDigits.endsWith(rowDigits.slice(-8));
+            }
+          }
+          return false;
+        };
+
         if (!force && lastKnownMaxUpdatedAtRef.current && allCasesRef.current.length > 0) {
-          // Delta sync con ventana de seguridad de 5s para evitar perder empates o desfases de milisegundos
+          const lookbackMs = Date.now() - lastFullOrDeltaSyncAt > 45000 ? 30000 : 5000;
           const sinceIso = new Date(
-            Math.max(0, toEpochMs(lastKnownMaxUpdatedAtRef.current) - 5000)
+            Math.max(0, toEpochMs(lastKnownMaxUpdatedAtRef.current) - lookbackMs)
           ).toISOString();
           const { data: deltaRows, error: deltaErr } = await supabase
             .from("sek_cases")
@@ -1085,24 +1142,48 @@ export function InboxClient({
             .limit(50);
 
           if (!deltaErr && Array.isArray(deltaRows) && deltaRows.length < 50) {
+            lastFullOrDeltaSyncAt = Date.now();
             if (deltaRows.length === 0) {
               if (globalLatestUpdatedAt && toEpochMs(globalLatestUpdatedAt) > toEpochMs(lastKnownMaxUpdatedAtRef.current)) {
                 lastKnownMaxUpdatedAtRef.current = globalLatestUpdatedAt;
               }
               return;
             }
+            const curSelNow = selectedIdRef.current;
             const byId = new Map<string, SekCase>();
             for (const c of allCasesRef.current) byId.set(String(c.id), c);
             for (const d of deltaRows as unknown as SekCase[]) {
               const prev = byId.get(String(d.id));
-              if (
+              const hasNewerMsg =
                 !prev ||
                 toEpochMs(d.last_message_at) > toEpochMs(prev.last_message_at) ||
-                toEpochMs(d.updated_at) > toEpochMs(prev.updated_at)
-              ) {
+                Boolean(d.last_message_preview && d.last_message_preview !== prev.last_message_preview && toEpochMs(d.updated_at) > toEpochMs(prev.updated_at));
+              const hasUpdated =
+                !prev ||
+                hasNewerMsg ||
+                toEpochMs(d.updated_at) > toEpochMs(prev.updated_at) ||
+                d.estado !== prev.estado ||
+                d.assigned_to !== prev.assigned_to;
+              if (hasUpdated) {
                 invalidateCaseHistoryCache(String(d.id));
               }
-              byId.set(String(d.id), d);
+              const isSelectedRow = matchesSelected(d, curSelNow) || (prev ? matchesSelected(prev, curSelNow) : false);
+              if (isSelectedRow && hasUpdated) {
+                dirtySelectedIds.push(String(d.id));
+              }
+              const estLower = String(d.estado || "").toLowerCase();
+              const isClosed = estLower === "cerrado" || estLower === "resuelto";
+              let mergedRow: SekCase = d;
+              if (isSelectedRow) {
+                mergedRow = { ...d, unread_count: 0 };
+              } else if (hasNewerMsg && !isClosed) {
+                const nextUnread = Math.max(Number(d.unread_count) || 0, (Number(prev?.unread_count) || 0) + 1);
+                mergedRow = { ...d, unread_count: nextUnread };
+                newlyMessagedIds.push(String(d.id));
+              } else if (prev && (Number(prev.unread_count) || 0) > 0 && (Number(d.unread_count) || 0) === 0 && toEpochMs(d.updated_at) === toEpochMs(prev.updated_at)) {
+                mergedRow = { ...d, unread_count: prev.unread_count };
+              }
+              byId.set(String(d.id), mergedRow);
             }
             newCases = Array.from(byId.values()).sort((a, b) => {
               const ta = String(a.last_message_at || a.created_at || "");
@@ -1110,10 +1191,12 @@ export function InboxClient({
               return tb.localeCompare(ta);
             });
           } else {
-            newCases = await fetchCasesMeta(supabase, 150, fetchEmail, isUserAdmin);
+            lastFullOrDeltaSyncAt = Date.now();
+            newCases = await fetchCasesMeta(supabase, 150, fetchEmail, curIsAdmin);
           }
         } else {
-          newCases = await fetchCasesMeta(supabase, 150, fetchEmail, isUserAdmin);
+          lastFullOrDeltaSyncAt = Date.now();
+          newCases = await fetchCasesMeta(supabase, 150, fetchEmail, curIsAdmin);
         }
 
         // Actualizar el timestamp más reciente conocido usando comparación numérica desde Postgres
@@ -1127,7 +1210,7 @@ export function InboxClient({
         }
         allCasesRef.current = newCases;
         setAllCases(newCases);
-        const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName, isUserAdmin, adminFilterMode);
+        const filteredNewCases = filterCasesByContainer(newCases, containerType, agentEmail, agentName, curIsAdmin, curFilterMode);
         const curSel = selectedIdRef.current;
         const currentSelected = curSel ? (
           newCases.find(c => String(c.id) === curSel) ||
@@ -1150,6 +1233,42 @@ export function InboxClient({
         setCases(filteredNewCases);
         prevCasesRef.current = filteredNewCases;
         prevMergedRef.current = mergeGroups(filteredNewCases);
+
+        if (dirtySelectedIds.length > 0 && typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("sek-case-poll-dirty", { detail: { caseIds: dirtySelectedIds } }));
+        }
+        if (newlyMessagedIds.length > 0) {
+          const newSet = new Set(newlyMessagedIds);
+          const candidate = filteredNewCases.find(c => newSet.has(String(c.id)) && !matchesSelected(c, curSel));
+          if (candidate) {
+            const msgTime = candidate.last_message_at ? new Date(candidate.last_message_at).getTime() : 0;
+            const isRecent = (Date.now() - msgTime) < 5 * 60 * 1000;
+            const alertKey = `msg-${candidate.id}-${candidate.last_message_at}`;
+            const now = Date.now();
+            const lastAlert = alertedCasesRef.current.get(alertKey) || 0;
+            if (isRecent && (now - lastAlert > 5000)) {
+              alertedCasesRef.current.set(alertKey, now);
+              playNotif();
+              const ci = clienteInfo(candidate.cliente);
+              const name = ci.nombre || ci.telefono || asText(candidate.title) || "Cliente";
+              const estadoC = String(candidate.estado || "").toLowerCase();
+              const esIa = estadoC === "ia_atendiendo";
+              toast.info(esIa ? `🤖 Nuevo caso en Smart Inbox: ${name}` : `💬 Nuevo mensaje de ${name}`, {
+                id: `toast-msg-${candidate.id}`,
+                description: asText(candidate.last_message_preview).slice(0, 80),
+                duration: 10000,
+                action: {
+                  label: "Ver",
+                  onClick: () => {
+                    if (esIa) router.push("/smart-inbox");
+                    selectCase(String(candidate.id));
+                  },
+                },
+              });
+              setUnreadTotal(p => p + 1);
+            }
+          }
+        }
       } catch (e) {
         console.error("[inbox] refetch error:", e);
       }
@@ -1202,7 +1321,7 @@ export function InboxClient({
         if (!isMounted) return;
         allCasesRef.current = nextAll;
         setAllCases(nextAll);
-        const filtered = filterCasesByContainer(nextAll, containerType, agentEmail, agentName, isUserAdmin, adminFilterMode);
+        const filtered = filterCasesByContainer(nextAll, containerType, agentEmail, agentName, isUserAdminRef.current, adminFilterModeRef.current);
         casesRef.current = filtered;
         setCases(filtered);
         prevCasesRef.current = filtered;
@@ -1212,16 +1331,16 @@ export function InboxClient({
 
     const soporteTimer = containerType === "soporte-avanzado"
       ? setInterval(() => {
-          if (!isUserActivelyViewing()) return;
+          if (!isTabVisible()) return;
           syncSoporteAvanzadoIds();
-        }, 12000)
+        }, 8000)
       : null;
 
-    /* Polling activo de respaldo cada 12s (solo mientras el usuario ve activamente la pestaña, chequeo de ~100 bytes + delta sync) */
+    /* Polling activo de respaldo cada 8s mientras la pestaña esté visible (chequeo de ~100 bytes + delta sync) */
     const poll = setInterval(() => {
-      if (!isUserActivelyViewing()) return;
+      if (!isTabVisible()) return;
       doRefetch(false);
-    }, 12000);
+    }, 8000);
 
     /* Refetch al volver a la ventana (pasa por el chequeo liviano de 60 bytes) */
     const handleFocus = () => {
@@ -1236,7 +1355,7 @@ export function InboxClient({
     };
     const handleRealtimeReconnected = () => {
       if (containerType === "soporte-avanzado") syncSoporteAvanzadoIds();
-      doRefetch(false);
+      doRefetch(true);
     };
     window.addEventListener("cases_realtime_reconnected", handleRealtimeReconnected);
     window.addEventListener("focus", handleFocus);
