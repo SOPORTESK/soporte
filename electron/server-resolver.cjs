@@ -13,6 +13,7 @@ const SUPABASE_ANON_KEY =
 
 const MEMORY_CACHE_TTL_MS = 30_000;
 let _cachedUrl = null;
+let _cachedLanUrl = null;
 let _cachedAt = 0;
 
 function normalizeUrl(raw) {
@@ -32,24 +33,36 @@ function getCacheFilePath() {
   return null;
 }
 
-function readDiskCachedUrl() {
+function readDiskCache() {
   try {
     const fp = getCacheFilePath();
-    if (!fp || !fs.existsSync(fp)) return null;
+    if (!fp || !fs.existsSync(fp)) return { url: null, lanUrl: null };
     const parsed = JSON.parse(fs.readFileSync(fp, 'utf8'));
-    return normalizeUrl(parsed?.url);
+    return {
+      url: normalizeUrl(parsed?.url),
+      lanUrl: normalizeUrl(parsed?.lanUrl),
+    };
   } catch {
-    return null;
+    return { url: null, lanUrl: null };
   }
 }
 
-function writeDiskCachedUrl(url) {
+function readDiskCachedUrl() {
+  return readDiskCache().url;
+}
+
+function writeDiskCachedUrl(url, lanUrl = _cachedLanUrl) {
   try {
     const clean = normalizeUrl(url);
+    const cleanLan = normalizeUrl(lanUrl);
     const fp = getCacheFilePath();
-    if (!clean || !fp) return;
+    if ((!clean && !cleanLan) || !fp) return;
     fs.mkdirSync(path.dirname(fp), { recursive: true });
-    fs.writeFileSync(fp, JSON.stringify({ url: clean, savedAt: new Date().toISOString() }), 'utf8');
+    fs.writeFileSync(
+      fp,
+      JSON.stringify({ url: clean, lanUrl: cleanLan, savedAt: new Date().toISOString() }),
+      'utf8'
+    );
   } catch {}
 }
 
@@ -57,12 +70,15 @@ function getCachedServerUrl() {
   return _cachedUrl || readDiskCachedUrl();
 }
 
-function setCachedServerUrl(url) {
+function setCachedServerUrl(url, lanUrl = _cachedLanUrl) {
   const clean = normalizeUrl(url);
-  if (!clean) return;
-  _cachedUrl = clean;
-  _cachedAt = Date.now();
-  writeDiskCachedUrl(clean);
+  const cleanLan = normalizeUrl(lanUrl);
+  if (clean) _cachedUrl = clean;
+  if (cleanLan) _cachedLanUrl = cleanLan;
+  if (clean || cleanLan) {
+    _cachedAt = Date.now();
+    writeDiskCachedUrl(clean || _cachedUrl, cleanLan || _cachedLanUrl);
+  }
 }
 
 async function probeServer(baseUrl, timeoutMs = 5000) {
@@ -91,14 +107,17 @@ async function fetchConfiguredServerFromSupabase() {
         signal: AbortSignal.timeout(6000),
       }
     );
-    if (!res.ok) return null;
+    if (!res.ok) return { url: null, lanUrl: null };
     const rows = await res.json();
     const rawVal = rows?.[0]?.value;
-    if (!rawVal) return null;
+    if (!rawVal) return { url: null, lanUrl: null };
     const parsed = typeof rawVal === 'string' ? JSON.parse(rawVal) : rawVal;
-    return normalizeUrl(parsed?.url);
+    return {
+      url: normalizeUrl(parsed?.url),
+      lanUrl: normalizeUrl(parsed?.lanUrl),
+    };
   } catch {
-    return null;
+    return { url: null, lanUrl: null };
   }
 }
 
@@ -107,16 +126,24 @@ async function resolveActiveServerUrl({ forceRefresh = false } = {}) {
     return _cachedUrl;
   }
 
-  const supabaseUrl = await fetchConfiguredServerFromSupabase();
-  if (supabaseUrl && (await probeServer(supabaseUrl, 5000))) {
-    setCachedServerUrl(supabaseUrl);
-    return supabaseUrl;
+  const cfg = await fetchConfiguredServerFromSupabase();
+  if (cfg?.lanUrl) _cachedLanUrl = cfg.lanUrl;
+
+  if (cfg?.url && (await probeServer(cfg.url, 4500))) {
+    setCachedServerUrl(cfg.url, cfg.lanUrl);
+    return cfg.url;
   }
 
-  const diskUrl = readDiskCachedUrl();
-  if (diskUrl && diskUrl !== supabaseUrl && (await probeServer(diskUrl, 4000))) {
-    setCachedServerUrl(diskUrl);
-    return diskUrl;
+  if (cfg?.lanUrl && (await probeServer(cfg.lanUrl, 2000))) {
+    setCachedServerUrl(cfg.lanUrl, cfg.lanUrl);
+    return cfg.lanUrl;
+  }
+
+  const disk = readDiskCache();
+  if (disk.lanUrl && !_cachedLanUrl) _cachedLanUrl = disk.lanUrl;
+  if (disk.url && disk.url !== cfg?.url && (await probeServer(disk.url, 3000))) {
+    setCachedServerUrl(disk.url, cfg?.lanUrl || disk.lanUrl);
+    return disk.url;
   }
 
   if (await probeServer('http://localhost:3100', 1500)) {
@@ -125,7 +152,7 @@ async function resolveActiveServerUrl({ forceRefresh = false } = {}) {
     return 'http://localhost:3100';
   }
 
-  const fallback = supabaseUrl || diskUrl || 'http://localhost:3100';
+  const fallback = cfg?.url || cfg?.lanUrl || disk.url || 'http://localhost:3100';
   _cachedUrl = fallback;
   _cachedAt = Date.now();
   return fallback;
@@ -135,10 +162,12 @@ function isAppOrigin(targetUrl) {
   if (!targetUrl || typeof targetUrl !== 'string') return false;
   try {
     const u = new URL(targetUrl);
-    const cached = getCachedServerUrl();
-    if (cached) {
-      const c = new URL(cached);
-      if (u.origin === c.origin) return true;
+    const disk = readDiskCache();
+    for (const candidate of [getCachedServerUrl(), _cachedLanUrl, disk.lanUrl]) {
+      if (candidate) {
+        const c = new URL(candidate);
+        if (u.origin === c.origin) return true;
+      }
     }
     if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') return true;
     if (/\.trycloudflare\.com$/i.test(u.hostname) && u.protocol === 'https:') return true;

@@ -113,6 +113,7 @@ async function reconnectToActiveServer() {
     setServerBaseUrl(freshUrl);
     console.log(`[electron] Reconectando ventana principal a ${freshUrl}...`);
     if (win && !win.isDestroyed()) {
+      await win.webContents.session.clearCache().catch(() => {});
       win.loadURL(freshUrl);
     }
   } catch (e) {
@@ -144,6 +145,11 @@ async function createWindow() {
   win.once('ready-to-show', () => {
     win.show();
   });
+  setTimeout(() => {
+    if (win && !win.isDestroyed() && !win.isVisible()) {
+      win.show();
+    }
+  }, 5000);
 
   const targetURL = isDev ? DEV_URL : await resolveActiveServerUrl({ forceRefresh: true });
   _activeServerUrl = targetURL;

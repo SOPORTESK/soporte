@@ -1,6 +1,6 @@
 require('./dns-boost.cjs');
 
-const { spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
@@ -26,6 +26,8 @@ let currentTunnelUrl = '';
 let lastSyncedUrl = '';
 let lastSyncTime = 0;
 let haZeroCount = 0;
+let probeFailCount = 0;
+let lastRestartAt = 0;
 let restarting = false;
 let shuttingDown = false;
 let syncingPromise = null;
@@ -129,6 +131,33 @@ async function publishActiveServerUrl(url, force = false) {
   return syncingPromise;
 }
 
+function restartCloudflared(reason) {
+  if (shuttingDown || restarting) return;
+  const now = Date.now();
+  if (now - lastRestartAt < 10_000) return;
+  lastRestartAt = now;
+  restarting = true;
+  haZeroCount = 0;
+  probeFailCount = 0;
+  console.warn(`[web-tunnel] Reiniciando cloudflared: ${reason}`);
+  const activeChild = child;
+  if (!activeChild) {
+    startCloudflared();
+    return;
+  }
+  const pid = activeChild.pid;
+  try {
+    activeChild.kill('SIGTERM');
+  } catch {}
+  if (process.platform === 'win32' && pid) {
+    setTimeout(() => {
+      if (child === activeChild) {
+        execFile('taskkill', ['/PID', String(pid), '/T', '/F'], () => {});
+      }
+    }, 2000);
+  }
+}
+
 function handleLogChunk(chunk) {
   const text = String(chunk || '');
   const matches = text.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/gi);
@@ -139,6 +168,9 @@ function handleLogChunk(chunk) {
       console.log(`[web-tunnel] URL detectada en logs de cloudflared: ${found}`);
       publishActiveServerUrl(found, true).catch(() => {});
     }
+  }
+  if (/Unauthorized:\s*Tunnel not found/i.test(text)) {
+    restartCloudflared('Unauthorized: Tunnel not found');
   }
 }
 
@@ -152,6 +184,7 @@ function startCloudflared() {
   restarting = false;
   currentTunnelUrl = '';
   haZeroCount = 0;
+  probeFailCount = 0;
 
   console.log('[web-tunnel] Iniciando cloudflared hacia', LOCAL_APP_URL);
   child = spawn(
@@ -197,12 +230,12 @@ async function checkTunnelHealth() {
     }
 
     const haMatch = text.match(/^cloudflared_tunnel_ha_connections\s+(\d+)/m);
-    const haConnections = haMatch ? parseInt(haMatch[1], 10) : 1;
+    const haConnections = haMatch ? parseInt(haMatch[1], 10) : 0;
 
     if (haConnections <= 0) {
       haZeroCount++;
-      console.warn(`[web-tunnel] cloudflared_tunnel_ha_connections=0 (${haZeroCount}/10)`);
-      if (haZeroCount >= 10) {
+      console.warn(`[web-tunnel] cloudflared_tunnel_ha_connections=0 (${haZeroCount}/2)`);
+      if (haZeroCount >= 2) {
         let internetOk = false;
         try {
           const ping = await fetch('https://1.1.1.1/cdn-cgi/trace', { signal: AbortSignal.timeout(3500) });
@@ -210,16 +243,45 @@ async function checkTunnelHealth() {
         } catch {}
 
         if (internetOk) {
-          haZeroCount = 0;
-          restarting = true;
-          console.warn('[web-tunnel] Internet activo pero túnel sin conexiones HA; reiniciando cloudflared...');
-          try {
-            child.kill('SIGTERM');
-          } catch {}
+          restartCloudflared('Internet activo pero túnel sin conexiones HA');
+          return;
         }
       }
     } else {
       haZeroCount = 0;
+    }
+
+    if (currentTunnelUrl) {
+      let tunnelOk = false;
+      try {
+        const probeRes = await fetch(`${currentTunnelUrl}/login`, {
+          redirect: 'manual',
+          signal: AbortSignal.timeout(5000),
+        });
+        tunnelOk = probeRes.status >= 200 && probeRes.status < 400;
+      } catch {}
+
+      if (tunnelOk) {
+        probeFailCount = 0;
+      } else {
+        probeFailCount++;
+        console.warn(`[web-tunnel] Probe /login falló para ${currentTunnelUrl} (${probeFailCount}/2)`);
+        if (probeFailCount >= 2) {
+          let localOk = false;
+          let internetOk = false;
+          try {
+            const lr = await fetch(`${LOCAL_APP_URL}/login`, { redirect: 'manual', signal: AbortSignal.timeout(3000) });
+            localOk = lr.status >= 200 && lr.status < 400;
+          } catch {}
+          try {
+            const ping = await fetch('https://1.1.1.1/cdn-cgi/trace', { signal: AbortSignal.timeout(3500) });
+            internetOk = ping.ok;
+          } catch {}
+          if (localOk && internetOk) {
+            restartCloudflared('túnel público no responde /login');
+          }
+        }
+      }
     }
   } catch (err) {
     // No reiniciar por fallos puntuales de lectura local de métricas
@@ -241,4 +303,4 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 startCloudflared();
 setInterval(() => {
   checkTunnelHealth().catch(() => {});
-}, 45_000);
+}, 30_000);
