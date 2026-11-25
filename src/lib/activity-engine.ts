@@ -734,21 +734,69 @@ export function computeUnifiedActivityMetrics(
 
   const effectiveSorted = firstRealIdx > 0 ? rawSorted.slice(firstRealIdx) : rawSorted;
 
-  // 1.2 Detectar ventanas de inactividad explícita (idle_timeout) para no aceptar checkpoints 'En curso •' emitidos dentro de ellas
+  const getExplicitIdleBounds = (it: TimelineEntry): { startMs: number; endMs: number } => {
+    const tMs = new Date(it.created_at).getTime();
+    const meta = (it.metadata || {}) as Record<string, any>;
+    const act = (it.action || "").toLowerCase();
+    const explicitDurMs =
+      Number(
+        it.duration_ms ||
+          (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
+          (meta.idle_seconds ? meta.idle_seconds * 1000 : 0)
+      ) || 0;
+
+    let startMs = tMs;
+    if (meta.idle_start) {
+      const parsedStart = new Date(meta.idle_start).getTime();
+      if (!isNaN(parsedStart)) startMs = parsedStart;
+    } else if (act.startsWith("sin actividad por") && !it.duration_ms && !meta.idle_seconds) {
+      const m = act.match(/^sin actividad por (\d+)\s*min/i);
+      const mins = m ? Math.max(1, Number(m[1])) : toleranceMin;
+      startMs = tMs - mins * 60 * 1000;
+    }
+
+    let endMs = tMs;
+    if (meta.idle_end && meta.source === "desktop") {
+      const parsedEnd = new Date(meta.idle_end).getTime();
+      if (!isNaN(parsedEnd) && parsedEnd >= startMs) endMs = parsedEnd;
+    } else if (
+      meta.source === "desktop" &&
+      explicitDurMs > 0 &&
+      (meta.reason === "idle_completed" || meta.reason === "idle_timeout" || meta.reason === "lock_screen")
+    ) {
+      endMs = Math.max(tMs, startMs + explicitDurMs);
+    } else if (explicitDurMs > 0) {
+      endMs = Math.max(tMs, tMs + explicitDurMs);
+    }
+
+    return { startMs, endMs };
+  };
+
+  // 1.2 Detectar ventanas de inactividad explícita para no aceptar checkpoints 'En curso •' emitidos dentro de ellas
   const explicitIdleWindows: { start: number; end: number }[] = [];
   for (const it of effectiveSorted) {
     const cat = (it.category || "").toLowerCase();
     const act = (it.action || "").toLowerCase();
+    const meta = (it.metadata || {}) as Record<string, any>;
     const isIdleTimeout =
       cat === "inactividad" &&
-      (it.metadata?.reason === "idle_timeout" || act.startsWith("sin actividad por"));
+      (meta.reason === "idle_timeout" || act.startsWith("sin actividad por"));
     const durMs =
       Number(
         it.duration_ms ||
-          (it.metadata?.idle_seconds ? it.metadata.idle_seconds * 1000 : 0)
+          (meta.idle_seconds ? meta.idle_seconds * 1000 : 0)
       ) || 0;
-    if (isIdleTimeout && durMs >= 60000) {
-      const s = new Date(it.created_at).getTime();
+    if (cat === "inactividad" && meta.source === "desktop" && meta.idle_start && meta.idle_end) {
+      const s = new Date(meta.idle_start).getTime();
+      const e = new Date(meta.idle_end).getTime();
+      if (!isNaN(s) && !isNaN(e) && e > s) {
+        explicitIdleWindows.push({ start: s, end: e });
+      }
+    } else if (cat === "inactividad" && act.startsWith("sin actividad por") && !meta.idle_start && !durMs) {
+      const bounds = getExplicitIdleBounds(it);
+      explicitIdleWindows.push({ start: bounds.startMs, end: new Date(it.created_at).getTime() + 60000 });
+    } else if (isIdleTimeout && durMs >= 60000) {
+      const s = getExplicitIdleBounds(it).startMs;
       explicitIdleWindows.push({ start: s, end: s + Math.min(durMs, 30 * 60 * 1000) });
     }
   }
@@ -805,6 +853,8 @@ export function computeUnifiedActivityMetrics(
     }
     sorted.push(cur);
   }
+
+  const hasDesktopTelemetry = sorted.some((t) => t.metadata?.source === "desktop");
 
   if (options.useMixedSchedule && options.daySchedules && sorted.length > 0) {
     const firstCRDate = new Date(new Date(sorted[0].created_at!).toLocaleString("en-US", { timeZone: "America/Costa_Rica" }));
@@ -1233,8 +1283,15 @@ export function computeUnifiedActivityMetrics(
   const flushIdleBlock = () => {
     if (!currentIdleBlock) return;
     // Regla de filtro de horario: fuera del horario laboral (antes o después) el tiempo inactivo no se envía a ningún proceso
-    const bounds = getScheduleBoundsForMs(currentIdleBlock.start);
-    if (!bounds.isWithin) {
+    const midMs =
+      currentIdleBlock.end > currentIdleBlock.start
+        ? Math.round((currentIdleBlock.start + currentIdleBlock.end) / 2)
+        : currentIdleBlock.start;
+    const bounds = getScheduleBoundsForMs(midMs);
+    if (
+      (bounds.startMs !== null && currentIdleBlock.end <= bounds.startMs) ||
+      (bounds.endMs !== null && currentIdleBlock.start >= bounds.endMs)
+    ) {
       currentIdleBlock = null;
       return;
     }
@@ -1333,25 +1390,42 @@ export function computeUnifiedActivityMetrics(
       const opCategory = assignToOperationalCategory(itemName, it.action, it.category, meta, options.appMappings);
 
       if (opCategory === "Inactividad") {
-        const bounds = getScheduleBoundsForMs(currTime);
-        if (!bounds.isWithin) {
+        if (meta.source === "web" && hasDesktopTelemetry) {
           if (currentIdleBlock) flushIdleBlock();
           break;
         }
+        const idleBounds = getExplicitIdleBounds(it);
         const nowMs = Date.now();
-        const explicitIdleMs = Number(it.duration_ms || (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) || (meta.idle_seconds ? meta.idle_seconds * 1000 : 0)) || 0;
-        const ongoingIdleMs = isTodayDay ? Math.min(Math.max(explicitIdleMs, Math.max(0, nowMs - currTime)), 24 * 3600 * 1000) : explicitIdleMs;
-        const rawEndIdleMs = currTime + ongoingIdleMs;
+        const explicitIdleMs = Math.max(
+          idleBounds.endMs - idleBounds.startMs,
+          Number(it.duration_ms || (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) || (meta.idle_seconds ? meta.idle_seconds * 1000 : 0)) || 0
+        );
+        const ongoingIdleMs = isTodayDay
+          ? Math.min(Math.max(explicitIdleMs, Math.max(0, nowMs - idleBounds.startMs)), 24 * 3600 * 1000)
+          : explicitIdleMs;
+        const rawEndIdleMs = Math.max(idleBounds.endMs, idleBounds.startMs + ongoingIdleMs);
+        const bounds = getScheduleBoundsForMs(
+          rawEndIdleMs > idleBounds.startMs ? Math.round((idleBounds.startMs + rawEndIdleMs) / 2) : currTime
+        );
+        if (
+          (bounds.startMs !== null && rawEndIdleMs <= bounds.startMs) ||
+          (bounds.endMs !== null && idleBounds.startMs >= bounds.endMs)
+        ) {
+          if (currentIdleBlock) flushIdleBlock();
+          break;
+        }
+        const startIdleMs = bounds.startMs !== null ? Math.max(idleBounds.startMs, bounds.startMs) : idleBounds.startMs;
         const endIdleMs = bounds.endMs !== null ? Math.min(rawEndIdleMs, bounds.endMs) : rawEndIdleMs;
-        const clampedOngoingMs = Math.max(0, endIdleMs - currTime);
+        const clampedOngoingMs = Math.max(0, endIdleMs - startIdleMs);
         if (!currentIdleBlock) {
           currentIdleBlock = {
-            start: currTime,
+            start: startIdleMs,
             end: endIdleMs,
             durationMs: clampedOngoingMs,
             reason: it.action || "Inactividad del sistema",
           };
         } else {
+          currentIdleBlock.start = Math.min(currentIdleBlock.start, startIdleMs);
           currentIdleBlock.end = Math.max(currentIdleBlock.end, endIdleMs);
           currentIdleBlock.durationMs = Math.max(0, currentIdleBlock.end - currentIdleBlock.start);
         }
@@ -1433,23 +1507,42 @@ export function computeUnifiedActivityMetrics(
 
     // Caso C: Inactividad del sistema (solo se envía dentro del horario laboral; fuera de horario el inactivo no se envía a ningún proceso)
     if (opCategory === "Inactividad") {
-      const bounds = getScheduleBoundsForMs(currTime);
-      if (!bounds.isWithin) {
+      if (meta.source === "web" && hasDesktopTelemetry && rawGap < TOLERANCE_GAP_MS) {
+        continue;
+      }
+      const idleBounds = getExplicitIdleBounds(it);
+      const explicitIdleMs = Number(it.duration_ms || (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) || (meta.idle_seconds ? meta.idle_seconds * 1000 : 0)) || 0;
+      const idleStartMs = idleBounds.startMs;
+      let effectiveEnd = nextTime;
+      if (meta.idle_end && meta.source === "desktop") {
+        effectiveEnd = Math.max(idleBounds.endMs, nextTime);
+      } else if (meta.source === "desktop" && explicitIdleMs > 0 && (meta.reason === "idle_completed" || meta.reason === "idle_timeout")) {
+        effectiveEnd = Math.max(nextTime, idleStartMs + explicitIdleMs);
+      } else {
+        effectiveEnd = Math.max(nextTime, currTime + Math.min(explicitIdleMs, rawGap));
+      }
+
+      const midMs = effectiveEnd > idleStartMs ? Math.round((idleStartMs + effectiveEnd) / 2) : idleStartMs;
+      const bounds = getScheduleBoundsForMs(midMs);
+      if (
+        (bounds.startMs !== null && effectiveEnd <= bounds.startMs) ||
+        (bounds.endMs !== null && idleStartMs >= bounds.endMs)
+      ) {
         if (currentIdleBlock) flushIdleBlock();
         continue;
       }
-      const explicitIdleMs = Number(it.duration_ms || (meta.duration_seconds ? meta.duration_seconds * 1000 : 0)) || 0;
-      const effectiveEnd = Math.max(nextTime, currTime + Math.min(explicitIdleMs, rawGap));
+      const clampedStart = bounds.startMs !== null ? Math.max(idleStartMs, bounds.startMs) : idleStartMs;
       const clampedEnd = bounds.endMs !== null ? Math.min(effectiveEnd, bounds.endMs) : effectiveEnd;
-      const dur = Math.max(0, clampedEnd - currTime);
+      const dur = Math.max(0, clampedEnd - clampedStart);
       if (!currentIdleBlock) {
         currentIdleBlock = {
-          start: currTime,
+          start: clampedStart,
           end: clampedEnd,
           durationMs: dur,
           reason: it.action || "Inactividad del sistema",
         };
       } else {
+        currentIdleBlock.start = Math.min(currentIdleBlock.start, clampedStart);
         currentIdleBlock.end = Math.max(currentIdleBlock.end, clampedEnd);
         currentIdleBlock.durationMs = Math.max(0, currentIdleBlock.end - currentIdleBlock.start);
       }
@@ -1666,8 +1759,18 @@ export function computeUnifiedActivityMetrics(
       continue;
     }
 
-    const coveredMs = getCoveredOverlap(currTime, nextTime);
-    const uncoveredGap = Math.max(0, rawGap - coveredMs);
+    const nextItForGap = sorted[i + 1];
+    const nextIsIdleForGap =
+      (nextItForGap?.category || "").toLowerCase() === "inactividad" ||
+      (nextItForGap?.action || "").toLowerCase().startsWith("sin actividad por") ||
+      (nextItForGap?.action || "").toLowerCase().startsWith("pantalla bloqueada");
+    const effectiveNextTime = nextIsIdleForGap
+      ? Math.max(currTime, Math.min(nextTime, getExplicitIdleBounds(nextItForGap).startMs))
+      : nextTime;
+    const effectiveRawGap = Math.max(0, effectiveNextTime - currTime);
+
+    const coveredMs = getCoveredOverlap(currTime, effectiveNextTime);
+    const uncoveredGap = Math.max(0, effectiveRawGap - coveredMs);
 
     if (uncoveredGap <= TOLERANCE_GAP_MS) {
       const dur = uncoveredGap > 0 ? uncoveredGap : (coveredMs > 0 ? 0 : 60000);
@@ -1703,10 +1806,10 @@ export function computeUnifiedActivityMetrics(
       const nextDur = (!nextIsManualEnd && !nextIsJustification && !nextIsIdle)
         ? (Number(nextIt?.duration_ms || (nextMeta.duration_seconds ? nextMeta.duration_seconds * 1000 : 0)) || 0)
         : 0;
-      const maxUnCoveredGap = Math.max(0, rawGap - coveredMs);
+      const maxUnCoveredGap = Math.max(0, effectiveRawGap - coveredMs);
       // Si el siguiente evento es un heartbeat corto (ej. 30s-300s) tras un hueco largo, solo acredita su duración real (máx TOLERANCE_GAP_MS)
       const workReportedMs = nextDur > 0 ? Math.min(nextDur, maxUnCoveredGap, TOLERANCE_GAP_MS) : 0;
-      const effectiveIdleGap = Math.max(0, rawGap - coveredMs - workReportedMs);
+      const effectiveIdleGap = Math.max(0, effectiveRawGap - coveredMs - workReportedMs);
 
       if (effectiveIdleGap <= TOLERANCE_GAP_MS) {
         const dur = Math.min(effectiveIdleGap + workReportedMs, maxUnCoveredGap);

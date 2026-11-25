@@ -640,14 +640,14 @@ async function pollActivity() {
         await sendLog(
           `Sin actividad por ${_toleranceMinutes} minutos mientras "${lastCatInfo.label}" estaba abierta`,
           'Inactividad',
-          { app: _lastApp, app_name: lastCatInfo.label, title: (_lastTitle || '').substring(0, 100), idle_seconds: idleSec, duration_ms: Math.max(0, now - idleStartMs), tolerance_minutes: _toleranceMinutes, reason: 'idle_timeout' },
+          { app: _lastApp, app_name: lastCatInfo.label, title: (_lastTitle || '').substring(0, 100), idle_seconds: idleSec, duration_ms: Math.max(0, now - idleStartMs), tolerance_minutes: _toleranceMinutes, idle_start: new Date(idleStartMs).toISOString(), reason: 'idle_timeout', source: 'desktop' },
           new Date(idleStartMs).toISOString()
         );
       } else {
         await sendLog(
           `Sin actividad por ${_toleranceMinutes} minutos`,
           'Inactividad',
-          { idle_seconds: idleSec, duration_ms: Math.max(0, now - idleStartMs), tolerance_minutes: _toleranceMinutes, reason: 'idle_timeout' },
+          { idle_seconds: idleSec, duration_ms: Math.max(0, now - idleStartMs), tolerance_minutes: _toleranceMinutes, idle_start: new Date(idleStartMs).toISOString(), reason: 'idle_timeout', source: 'desktop' },
           new Date(idleStartMs).toISOString()
         );
       }
@@ -659,10 +659,13 @@ async function pollActivity() {
     if (!win) {
       if (!_isIdle) {
         _isIdle = true;
-        _idleStartTime = now;
+        const lockOffsetMs = Math.min((idleSec || 0) * 1000, 30 * 60 * 1000);
+        const lockStartMs = Math.max(_appEnterTime || (now - lockOffsetMs), now - lockOffsetMs);
+        _idleStartTime = lockStartMs;
         _lastIdleHeartbeat = now;
+        const lockCreatedAt = new Date(lockStartMs).toISOString();
         if (_lastApp) {
-          const rawDwell = now - _appEnterTime;
+          const rawDwell = Math.max(0, lockStartMs - _appEnterTime);
           const dwellMs = Math.min(rawDwell, 30 * 60 * 1000);
           const dwellSec = Math.round(dwellMs / 1000);
           if (!isIgnoredSystemWindow(_lastApp, _lastTitle)) {
@@ -681,11 +684,38 @@ async function pollActivity() {
                 context: lastCatInfo.context,
                 context_type: lastCatInfo.context_type,
                 executive_report: true
-              });
+              }, lockCreatedAt);
             }
-            await sendLog(`Pantalla bloqueada mientras usaba "${lastCatInfo.label}"`, 'Inactividad', { app: _lastApp, app_name: lastCatInfo.label, title: _lastTitle, reason: 'lock_screen' });
+            await sendLog(
+              `Pantalla bloqueada mientras usaba "${lastCatInfo.label}"`,
+              'Inactividad',
+              {
+                app: _lastApp,
+                app_name: lastCatInfo.label,
+                title: _lastTitle,
+                idle_seconds: idleSec,
+                duration_ms: Math.max(0, now - lockStartMs),
+                idle_start: lockCreatedAt,
+                reason: 'lock_screen',
+                source: 'desktop'
+              },
+              lockCreatedAt
+            );
           }
           _lastApp = null; _lastTitle = null; _lastUrl = null;
+        } else {
+          await sendLog(
+            'Pantalla bloqueada',
+            'Inactividad',
+            {
+              idle_seconds: idleSec,
+              duration_ms: Math.max(0, now - lockStartMs),
+              idle_start: lockCreatedAt,
+              reason: 'lock_screen',
+              source: 'desktop'
+            },
+            lockCreatedAt
+          );
         }
       } else if (now - _lastIdleHeartbeat >= HEARTBEAT_EVERY * 1000) {
         const sliceMs = now - _lastIdleHeartbeat;
@@ -924,21 +954,73 @@ async function takeScreenshot() {
 }
 
 // ─── POWER MONITOR ────────────────────────────────────────────────────────────
+let _powerMonitorInitialized = false;
+
 function setupPowerMonitor() {
+  if (_powerMonitorInitialized) return;
+  _powerMonitorInitialized = true;
+
   powerMonitor.on('lock-screen', () => {
     if (!_agentEmail) return;
-    const { category, label } = categorizeApp(_lastApp, _lastTitle);
-    const dwellSec = Math.round((Date.now() - _appEnterTime) / 1000);
-    sendLog(`Pantalla bloqueada mientras usaba "${label}" (llevaba ${formatDwell(dwellSec)})`, 'Inactividad', { app: _lastApp, title: (_lastTitle || '').substring(0, 100), dwell_seconds: dwellSec, reason: 'lock_screen' });
+    const now = Date.now();
+    const idleSec = powerMonitor.getSystemIdleTime ? powerMonitor.getSystemIdleTime() : 0;
+    const lockOffsetMs = Math.min(idleSec * 1000, 30 * 60 * 1000);
+    const lockStartMs = (_isIdle && _idleStartTime)
+      ? _idleStartTime
+      : Math.max(_appEnterTime || (now - lockOffsetMs), now - lockOffsetMs);
+    const lockCreatedAt = new Date(lockStartMs).toISOString();
+    const { label } = categorizeApp(_lastApp, _lastTitle);
+    const dwellSec = Math.max(0, Math.round((lockStartMs - _appEnterTime) / 1000));
+    sendLog(
+      `Pantalla bloqueada mientras usaba "${label}" (llevaba ${formatDwell(dwellSec)})`,
+      'Inactividad',
+      {
+        app: _lastApp,
+        title: (_lastTitle || '').substring(0, 100),
+        dwell_seconds: dwellSec,
+        idle_seconds: idleSec,
+        duration_ms: Math.max(0, now - lockStartMs),
+        idle_start: lockCreatedAt,
+        reason: 'lock_screen',
+        source: 'desktop'
+      },
+      lockCreatedAt
+    );
     _isIdle = true;
+    _idleStartTime = lockStartMs;
+    _lastIdleHeartbeat = now;
   });
 
   powerMonitor.on('unlock-screen', () => {
     if (!_agentEmail) return;
+    const now = Date.now();
+    const prevIdleStart = _idleStartTime;
+    const totalIdleMs = prevIdleStart ? Math.max(0, now - prevIdleStart) : 0;
+    const idleThresholdMs = Math.max(1, _toleranceMinutes) * 60 * 1000;
+    if (_isIdle && prevIdleStart && totalIdleMs >= idleThresholdMs) {
+      const idleSecTotal = Math.round(totalIdleMs / 1000);
+      sendLog(
+        `Inactividad finalizada (${formatDwell(idleSecTotal)})`,
+        'Inactividad',
+        {
+          idle_seconds: idleSecTotal,
+          duration_ms: totalIdleMs,
+          tolerance_minutes: _toleranceMinutes,
+          idle_start: new Date(prevIdleStart).toISOString(),
+          idle_end: new Date(now).toISOString(),
+          reason: 'idle_completed',
+          source: 'desktop'
+        },
+        new Date(prevIdleStart).toISOString()
+      );
+    }
     _isIdle = false;
-    _appEnterTime = Date.now();
-    _lastActivityTime = Date.now();
-    sendLog('Pantalla desbloqueada — reanudó actividad', 'Navegación', { reason: 'unlock_screen' });
+    _idleStartTime = 0;
+    _lastIdleHeartbeat = 0;
+    _appEnterTime = now;
+    _lastActivityTime = now;
+    _lastHeartbeatSec = 0;
+    sendLog('Pantalla desbloqueada — reanudó actividad', 'Navegación', { reason: 'unlock_screen', source: 'desktop' });
   });
 
   powerMonitor.on('suspend', () => {
