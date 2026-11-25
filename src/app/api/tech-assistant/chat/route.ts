@@ -176,8 +176,8 @@ const FAULT_DOMAINS: FaultDomainDef[] = [
   },
   {
     id: "red_conectividad",
-    label: "Red, Conectividad IP, PoE y Hik-Connect",
-    webSearchHint: "offline desconectado red ip poe puertos hik-connect configuracion",
+    label: "Red, Conectividad IP, Wi-Fi Mesh, PoE y Hik-Connect",
+    webSearchHint: "configuracion mesh wds wifi access point red ip poe solucion",
     strongPhrases: [
       "fuera de linea",
       "fuera de línea",
@@ -191,6 +191,24 @@ const FAULT_DOMAINS: FaultDomainDef[] = [
       "no conecta a la red",
       "sin acceso a internet",
       "puertos poe",
+      "mesh inalambrico",
+      "mesh inalámbrico",
+      "ap mesh",
+      "red mesh",
+      "modo mesh",
+      "enlace mesh",
+      "en mesh",
+      "access point",
+      "punto de acceso",
+      "puntos de acceso",
+      "wi-fi 6",
+      "wifi 6",
+      "huawei ekit",
+      "ekit app",
+      "adoptar ap",
+      "sin cable",
+      "puente inalambrico",
+      "puente inalámbrico",
     ],
     keywords: [
       "offline",
@@ -210,6 +228,26 @@ const FAULT_DOMAINS: FaultDomainDef[] = [
       "vlan",
       "nat",
       "winbox",
+      "mesh",
+      "wds",
+      "wifi",
+      "wi-fi",
+      "wlan",
+      "ssid",
+      "roaming",
+      "repetidor",
+      "repeater",
+      "bridge",
+      "puente",
+      "ekit",
+      "ekitengine",
+      "omada",
+      "unifi",
+      "airmax",
+      "reyee",
+      "backhaul",
+      "inalambrico",
+      "inalámbrico",
     ],
   },
   {
@@ -421,9 +459,9 @@ const SUCCESS_CONFIRMATION_PATTERNS = [
 ];
 
 const FAILURE_OR_COMPLAINT_PATTERNS = [
-  /no\s+(sirvi[oó]|funcion[oó]|pude|conecta|da\s+video|reconoce)/i,
-  /sigue\s+(igual|sin\s+funcionar|sin\s+dar|con\s+el\s+error|fallando)/i,
-  /p[eé]simo|terrible|muy\s+mal|no\s+me\s+ayudaron|no\s+me\s+sirvi[oó]/i,
+  /no\s+(?:lo\s+)?(?:sirvi[oó]|funcion[oó]|pude|logr[oóe]|conecta|da\s+video|reconoce)/i,
+  /sigue\s+(?:igual|sin\s+funcionar|sin\s+dar|con\s+el\s+error|fallando)/i,
+  /p[eé]simo|terrible|muy\s+mal|\bqu[eé]\s+mal\b|no\s+me\s+ayudaron|no\s+me\s+sirvi[oó]/i,
 ];
 
 const ABANDONMENT_CLOSURE_PATTERNS =
@@ -779,6 +817,7 @@ function extractValidHardwareModels(text: string): string[] {
 
   const modelPriority = (m: string): number => {
     if (/^(?:hik-)?(?:ids-|ds-2ce|ds-2cd|ds-7\d|xvr|nvr|dvr|dh-|dhi-|ipc-|ds-k|ax-|uap-|rb\d)/i.test(m)) return 100;
+    if (/^(?:ap\d{2,4}|eap\d{2,4}|u6-|u7-|rg-|ccr\d|hap|s\d{3,4})/i.test(m)) return 95;
     if (/^(?:ivms|hikcentral|smartpss|biotime|zkbio|configtool|sadp)/.test(m)) return 10;
     return 50;
   };
@@ -865,24 +904,24 @@ async function getFullKnowledgeAndCasesIndex(serviceClient: any): Promise<{
     const clientTexts = hc
       .filter((m: any) => m && m.content && typeof m.content === "string")
       .map((m: any) => String(m.content).trim());
+    const clientFullText = clientTexts.join(" ");
     const clientTail = clientTexts.slice(-5).join(" ");
 
-    // Descartar si el cliente reportó fallo o queja al final
-    if (FAILURE_OR_COMPLAINT_PATTERNS.some((re) => re.test(clientTail))) {
+    // Descartar si el cliente reportó fallo o queja en la conversación
+    if (FAILURE_OR_COMPLAINT_PATTERNS.some((re) => re.test(clientFullText))) {
       continue;
     }
 
     let confirmationReason = "";
-    if (clientRating >= 4 && clientTexts.length > 0) {
-      confirmationReason = `Calificación de satisfacción: ${clientRating} estrellas`;
-    } else {
-      for (const re of SUCCESS_CONFIRMATION_PATTERNS) {
-        const match = clientTail.match(re);
-        if (match) {
-          confirmationReason = `Confirmación del cliente: "${match[0]}"`;
-          break;
-        }
+    for (const re of SUCCESS_CONFIRMATION_PATTERNS) {
+      const match = clientTail.match(re);
+      if (match) {
+        confirmationReason = `Confirmación del cliente: "${match[0]}"`;
+        break;
       }
+    }
+    if (!confirmationReason && clientRating >= 4 && clientTexts.length > 0) {
+      confirmationReason = `Calificación de satisfacción: ${clientRating} estrellas`;
     }
 
     // Regla de oro: si el cliente no confirmó que le sirvió la solución, NO se toma como precedente
@@ -1592,7 +1631,14 @@ export async function POST(req: NextRequest) {
     const isGenericDiagnosticPrompt =
       isFindResourcesAction ||
       /diagnostique y resuelva|identifique el equipo|procedimiento técnico|analice este caso abierto/i.test(message || "");
-    const userQueryOnly: string = isGenericDiagnosticPrompt ? "" : String(message || "");
+    const isBoilerplateDraftPrompt =
+      isDraftAction &&
+      (!message ||
+        /redactar propuesta de respuesta|instrucciones de atenci[oó]n al cliente|redacte la respuesta para el cliente/i.test(
+          message
+        ));
+    const userQueryOnly: string =
+      isGenericDiagnosticPrompt || isBoilerplateDraftPrompt ? "" : String(message || "");
 
     const cleanCaseTitle = !isGenericCaseTitle(targetCase?.title) ? String(targetCase?.title || "") : "";
     const cleanCaseDesc = !isBoilerplateOrFileMessage(clienteData?.descripcion) ? String(clienteData?.descripcion || "") : "";
@@ -1613,8 +1659,14 @@ export async function POST(req: NextRequest) {
       "hikvision",
       "dahua",
       "zkteco",
+      "huawei",
       "ubiquiti",
       "mikrotik",
+      "tp-link",
+      "tplink",
+      "ruijie",
+      "reyee",
+      "grandstream",
       "hilook",
       "ezviz",
       "imou",
@@ -1626,13 +1678,24 @@ export async function POST(req: NextRequest) {
       "honeywell",
       "simplex",
       "sinplex",
+      "aruba",
+      "cisco",
+      "fortinet",
+      "cambium",
+      "mimosa",
+      "tenda",
+      "mercusys",
+      "linksys",
+      "d-link",
+      "zyxel",
+      "cudy",
     ];
 
     const userBrands = KNOWN_BRANDS.filter((b) => userQueryOnly.toLowerCase().includes(b));
     const caseBrands = KNOWN_BRANDS.filter((b) => fullContextCorpus.includes(b));
     const activeBrands = userBrands.length > 0 ? userBrands : caseBrands;
 
-    // Inferir fabricante por línea de producto o app (AX-Pro / Hik-Connect = Hikvision, DMSS = Dahua, BioTime = ZKTeco)
+    // Inferir fabricante por línea de producto o app (AX-Pro / Hik-Connect = Hikvision, DMSS = Dahua, BioTime = ZKTeco, eKit = Huawei)
     const PRODUCT_LINE_HINTS: { re: RegExp; brand: string; line: string }[] = [
       { re: /\bax[\s-]?pro\b/i, brand: "hikvision", line: "AX PRO" },
       { re: /\bax[\s-]?hub\b/i, brand: "hikvision", line: "AX Hub" },
@@ -1643,6 +1706,12 @@ export async function POST(req: NextRequest) {
       { re: /\bds-[a-z0-9]/i, brand: "hikvision", line: "" },
       { re: /\bdmss\b|smartpss/i, brand: "dahua", line: "DMSS / SmartPSS" },
       { re: /biotime|zkbio/i, brand: "zkteco", line: "BioTime" },
+      { re: /\bekit(?:engine)?\b/i, brand: "huawei", line: "eKitEngine" },
+      { re: /\bomada\b|\beap\d{3}/i, brand: "tp-link", line: "Omada" },
+      { re: /\breyee\b|\brg-[a-z0-9]/i, brand: "ruijie", line: "Reyee" },
+      { re: /\bunifi\b|\buap-|\bu6-|\bu7-/i, brand: "ubiquiti", line: "UniFi" },
+      { re: /\bairmax\b|nanostation|litebeam|powerbeam/i, brand: "ubiquiti", line: "airMAX" },
+      { re: /routeros|winbox|\brb\d{3,4}|\bccr\d/i, brand: "mikrotik", line: "RouterOS" },
     ];
     const productHint = PRODUCT_LINE_HINTS.find((h) => h.re.test(fullContextCorpus));
     const primaryBrand =
@@ -1655,6 +1724,7 @@ export async function POST(req: NextRequest) {
     const cleanModels = [
       ...new Set([
         ...extractValidHardwareModels(userQueryOnly),
+        ...extractValidHardwareModels(substantiveOpenCaseText),
         ...detectedCaseModels,
         ...extractValidHardwareModels(`${targetCase?.modelo || ""} ${clienteData?.modelo || ""} ${primaryTopicText}`),
       ]),
@@ -1704,9 +1774,14 @@ export async function POST(req: NextRequest) {
       "solucionarlo", "inmediato", "hola", "buenas", "tardes", "dias", "días", "ayuda", "favor", "estimado",
       "opcion", "opción", "seccion", "sección", "menu", "menú", "ingrese", "vaya", "muchas", "gracias",
       "buenos", "saludos", "consulta", "consultar", "solicita", "indica", "mensaje", "conversacion", "conversación",
-      "matthew", "joshua", "isaac", "cesar", "cbatista", "vendedor", "cuenta", "chat", "whatsapp", "pasada",
-      "semana", "conversando", "reparacion", "reparación", "diagnostico", "diagnóstico", "señor", "senor",
-      "gracias", "saludos", "cordial", "cordiales", "atentamente", "compañero", "amigo", "porfa"
+      "matthew", "joshua", "isaac", "cesar", "césar", "cbatista", "sergio", "luis", "vendedor", "cuenta", "chat",
+      "whatsapp", "pasada", "semana", "conversando", "reparacion", "reparación", "diagnostico", "diagnóstico",
+      "señor", "senor", "cordial", "cordiales", "atentamente", "compañero", "amigo", "porfa", "tengo", "estoy",
+      "tratando", "trato", "trate", "poder", "poner", "logro", "lograr", "intentando", "quiero", "quiere",
+      "quisiera", "necesita", "buen", "tarde", "noche", "pero", "solo", "aqui", "aquí", "esto", "está",
+      "algo", "todo", "nada", "bien", "mejor", "hace", "hizo", "dice", "dijo", "pueden", "tienen", "tener",
+      "saber", "decir", "darme", "ayudar", "apoyo",
+      "redactar", "propuesta", "respuesta", "basada", "abierto", "instrucciones", "atencion", "atención"
     ]);
     const rawTokenSource = `${userQueryOnly} ${primaryTopicText}`;
     const queryTokens = [
@@ -1944,6 +2019,9 @@ export async function POST(req: NextRequest) {
     let webContext = "";
     let retrievedWebResults: { title: string; url: string; snippet: string; kind: TechResourceKind }[] = [];
     let verifiedResources: TechResource[] = [];
+    let verifiedModels: string[] = [];
+    let unverifiedModels: string[] = [];
+    let hardwareModelsForWeb: string[] = [];
     const memoryToSave = !isDraftAction && typeof message === "string" ? detectMemorySaveIntent(message) : null;
     const isMetaMediaQuery =
       isDraftAction ||
@@ -1977,8 +2055,34 @@ export async function POST(req: NextRequest) {
 
     if (!isPureMemoryCommand && !isTrivialGreeting && !isMetaCorrectionOnly) {
       try {
-        const topFaultTerms = activeFaultTerms.slice(0, 3).join(" ");
-        const tokenHint = queryTokens.slice(0, 3).join(" ");
+        const foldAccents = (s: string) =>
+          String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const faultWordSet = new Set<string>();
+        const topFaultWords: string[] = [];
+        for (const phrase of activeFaultTerms.slice(0, 4)) {
+          for (const w of phrase.split(/\s+/)) {
+            const lw = w.trim().toLowerCase();
+            const fw = foldAccents(lw);
+            if (fw.length < 3 || ["con", "sin", "por", "para", "del", "las", "los", "una", "uno"].includes(fw)) {
+              continue;
+            }
+            if (!faultWordSet.has(fw)) {
+              faultWordSet.add(fw);
+              topFaultWords.push(lw);
+            }
+          }
+          if (topFaultWords.length >= 4) break;
+        }
+        const topFaultTerms = topFaultWords.slice(0, 4).join(" ");
+
+        const lowerCleanModels = new Set(cleanModels.map((m) => m.toLowerCase()));
+        const filteredTokens = queryTokens.filter((qt) => {
+          const fq = foldAccents(qt.toLowerCase());
+          if (primaryBrand && fq === foldAccents(primaryBrand.toLowerCase())) return false;
+          if (lowerCleanModels.has(qt.toLowerCase())) return false;
+          return true;
+        });
+        const tokenHint = filteredTokens.slice(0, 3).join(" ");
         const cleanUserMsg = userQueryOnly
           .replace(/^(como|cómo|por que|porque|ayuda|cual|cuál|que|qué|donde|dónde|favor|puedes|necesito|hola|buen dia|buenas)\s+/i, "")
           .trim()
@@ -1992,68 +2096,198 @@ export async function POST(req: NextRequest) {
           visionHint = "";
         }
 
-        const hardwareModelForWeb =
-          (isAnalogCoaxCase
-            ? cleanModels.find((cm) => /ds-2ce/i.test(cm)) || cleanModels.find((cm) => !/^(?:sadp|ivms|hitools)/.test(cm))
-            : cleanModels.find((cm) => !/^(?:sadp|ivms|hitools)/.test(cm))) || primaryModel;
+        const dedupeQueryWords = (raw: string): string => {
+          const seenWords = new Set<string>();
+          return String(raw || "")
+            .replace(/\s+/g, " ")
+            .trim()
+            .split(" ")
+            .filter((w) => {
+              const lw = w.toLowerCase().trim();
+              if (!lw || seenWords.has(lw)) return false;
+              seenWords.add(lw);
+              return true;
+            })
+            .join(" ");
+        };
+
+        const nonSoftwareModels = cleanModels.filter((cm) => !/^(?:sadp|ivms|hitools|configtool)/.test(cm));
+        hardwareModelsForWeb = (
+          isAnalogCoaxCase
+            ? [
+                ...nonSoftwareModels.filter((cm) => /ds-2ce/i.test(cm)),
+                ...nonSoftwareModels.filter((cm) => !/ds-2ce/i.test(cm)),
+              ]
+            : nonSoftwareModels
+        ).slice(0, 2);
+        const hardwareModelForWeb = hardwareModelsForWeb[0] || primaryModel;
+        const secondaryModelForWeb = hardwareModelsForWeb[1] || "";
+        const hardwareModelsStr = hardwareModelsForWeb.join(" ").trim() || primaryModel;
+        const multiModelHint = hardwareModelsForWeb.join(" ").trim() || hardwareModelForWeb;
 
         let subject = "";
         if (isAnalogCoaxCase && /formate|reset|restablec|valores\s+de\s+f[aá]brica/i.test(userQueryOnly)) {
           subject = "menu OSD PTZ reset restablecer camara analoga DVR";
-        } else if (isConsultationCase || activeFaultDomain === "integracion_api_sdk") {
+        } else if (activeFaultDomain === "integracion_api_sdk") {
           const consultTerms = activeFaultTerms.slice(0, 3).join(" ");
-          subject =
-            activeFaultDomain === "integracion_api_sdk"
-              ? `${consultTerms} ISAPI SDK face comparison datasheet`.trim()
-              : consultTerms || tokenHint || "datasheet especificaciones compatibilidad";
+          subject = `${consultTerms} ISAPI SDK face comparison datasheet`.trim();
         } else if (!isMetaMediaQuery && cleanUserMsg.length > 8) {
           subject = isAnalogCoaxCase ? `${cleanUserMsg} menu OSD DVR camara analoga` : cleanUserMsg;
         } else if (isAnalogCoaxCase) {
           subject = "menu OSD PTZ camara analoga day night dvr";
+        } else if (isConsultationCase) {
+          subject = [topFaultTerms || tokenHint, "configuracion compatibilidad"].filter(Boolean).join(" ").trim();
         } else {
           subject = [topFaultTerms || tokenHint, visionHint].filter(Boolean).join(" ").trim();
         }
 
-        const baseQuery = `${primaryBrand} ${isAnalogCoaxCase && productLine === "SADP" ? "" : productLine} ${hardwareModelForWeb} ${subject}`
-          .replace(/\s+/g, " ")
-          .trim();
-        const queryForWeb = baseQuery.length >= 3 ? baseQuery : `${primaryBrand} ${hardwareModelForWeb} manual configuracion`.trim();
+        const baseQuery = dedupeQueryWords(
+          `${primaryBrand} ${isAnalogCoaxCase && productLine === "SADP" ? "" : productLine} ${hardwareModelsStr} ${subject}`
+        );
+        const queryForWeb =
+          baseQuery.length >= 3
+            ? baseQuery
+            : dedupeQueryWords(`${primaryBrand} ${hardwareModelsStr} manual configuracion`);
 
         if (queryForWeb.length >= 3) {
+          const OFFICIAL_SUPPORT_SITES: Record<string, string> = {
+            huawei: "support.huawei.com",
+            hikvision: "hikvision.com",
+            hilook: "hikvision.com",
+            dahua: "dahuasecurity.com OR site:dahuawiki.com",
+            ubiquiti: "help.ui.com OR site:ui.com",
+            mikrotik: "help.mikrotik.com",
+            "tp-link": "tp-link.com",
+            tplink: "tp-link.com",
+            zkteco: "zkteco.com",
+            ruijie: "ruijienetworks.com",
+            reyee: "ruijienetworks.com",
+            grandstream: "grandstream.com",
+            aruba: "arubanetworks.com",
+            cisco: "cisco.com",
+            fortinet: "docs.fortinet.com",
+            uniview: "uniview.com",
+            axis: "axis.com",
+            dsc: "dsc.com",
+            simplex: "johnsoncontrols.com",
+            sinplex: "johnsoncontrols.com",
+          };
+
+          const extractEnglishFeatureQuery = (raw: string): string => {
+            const lower = String(raw || "").toLowerCase();
+            const feats: string[] = [];
+            const pushFeat = (term: string) => {
+              if (!feats.includes(term)) feats.push(term);
+            };
+            if (/\bmesh\b/i.test(lower)) pushFeat("mesh");
+            if (/\bwds\b|puente\s+inal[aá]mbrico|bridge/i.test(lower)) pushFeat("wds OR bridge");
+            if (/\bisapi\b/i.test(lower)) pushFeat("ISAPI");
+            if (/\bsdk\b/i.test(lower)) pushFeat("SDK");
+            if (/\bisup\b/i.test(lower)) pushFeat("ISUP");
+            if (/\bonvif\b/i.test(lower)) pushFeat("ONVIF");
+            if (/\brtsp\b/i.test(lower)) pushFeat("RTSP");
+            if (/\bpoe\b/i.test(lower)) pushFeat("PoE");
+            if (/\bvlan\b/i.test(lower)) pushFeat("VLAN");
+            if (/\b(?:facial|rostro|face)\b/i.test(lower)) pushFeat("face recognition");
+            if (/\b(?:osd|ptz)\b/i.test(lower)) pushFeat("OSD PTZ");
+            if (/\bwiegand\b/i.test(lower)) pushFeat("Wiegand");
+            if (/\brs-?485\b/i.test(lower)) pushFeat("RS485");
+            if (/\broaming\b/i.test(lower)) pushFeat("roaming");
+            if (/\bfirmware\b/i.test(lower)) pushFeat("firmware");
+            if (/\b(?:reset|restablec)\b/i.test(lower)) pushFeat("reset");
+            if (/\b(?:cloud|nube|ekit)\b/i.test(lower)) pushFeat("cloud");
+            if (/\b(?:hybrid\s+light|luz\s+h[ií]brida|d[ií]a\s*\/?\s*noche|day\s*\/?\s*night)\b/i.test(lower)) {
+              pushFeat("hybrid light OR day night");
+            }
+            return feats.slice(0, 3).join(" ");
+          };
+
+          const enFeat = extractEnglishFeatureQuery(`${userQueryOnly} ${substantiveOpenCaseText} ${topFaultTerms}`);
+          const officialSite = primaryBrand ? OFFICIAL_SUPPORT_SITES[primaryBrand.toLowerCase()] || "" : "";
+          let officialFactQuery = "";
+          if (hardwareModelsForWeb.length > 0) {
+            const mUpper = hardwareModelsForWeb.map((m) => `"${m.toUpperCase()}"`);
+            const modelClause = mUpper.length > 1 ? `(${mUpper.join(" OR ")})` : mUpper[0];
+            officialFactQuery = officialSite
+              ? `site:${officialSite} ${modelClause} ${enFeat || "specifications"}`.trim()
+              : `${primaryBrand} ${modelClause} ${enFeat || "specifications"} "not supported" OR "supported" OR datasheet`.trim();
+          }
+
           const datasheetManualQuery =
             primaryBrand || hardwareModelForWeb
-              ? `${primaryBrand} ${hardwareModelForWeb} datasheet OR manual pdf`.replace(/\s+/g, " ").trim()
+              ? dedupeQueryWords(`${primaryBrand} ${hardwareModelForWeb} datasheet OR manual pdf`)
               : "";
-          const officialQuery = isConsultationCase
-            ? `${queryForWeb} datasheet especificaciones`
-            : `${queryForWeb} tutorial guia configuracion`;
-          const forumQuery = isConsultationCase
-            ? `${queryForWeb} ISAPI SDK`
-            : `${queryForWeb} solucion`;
-          const videoSubject = (topFaultTerms || tokenHint || subject || "configuracion tutorial")
+          const secondaryDatasheetQuery =
+            secondaryModelForWeb && (primaryBrand || secondaryModelForWeb)
+              ? dedupeQueryWords(`${primaryBrand} ${secondaryModelForWeb} datasheet OR manual pdf`)
+              : "";
+          const officialQuery =
+            activeFaultDomain === "integracion_api_sdk"
+              ? dedupeQueryWords(`${queryForWeb} datasheet especificaciones`)
+              : isConsultationCase
+                ? dedupeQueryWords(`${queryForWeb} configuracion compatibilidad`)
+                : dedupeQueryWords(`${queryForWeb} tutorial guia configuracion`);
+          const forumQuery =
+            activeFaultDomain === "integracion_api_sdk"
+              ? dedupeQueryWords(`${queryForWeb} ISAPI SDK`)
+              : dedupeQueryWords(`${queryForWeb} solucion configuracion`);
+          const videoSubject = dedupeQueryWords(topFaultTerms || tokenHint || subject || "configuracion tutorial")
             .split(/\s+/)
             .slice(0, 5)
             .join(" ");
-          const videoQuery = `${primaryBrand} ${hardwareModelForWeb} ${videoSubject} tutorial`.replace(/\s+/g, " ").trim();
+          const videoQuery = dedupeQueryWords(`${primaryBrand} ${hardwareModelsStr} ${videoSubject} tutorial`);
 
           console.log(
-            `[tech-assistant] 🌐 Web=${officialQuery} | PDF=${datasheetManualQuery || "none"} | Foros=${isDraftAction ? "skip" : forumQuery} | Videos=${isDraftAction ? "skip" : videoQuery}`
+            `[tech-assistant] 🌐 Web=${officialQuery}${officialFactQuery ? ` | FactEN=${officialFactQuery}` : ""} | PDF=${datasheetManualQuery || "none"}${secondaryDatasheetQuery ? ` | PDF2=${secondaryDatasheetQuery}` : ""} | Foros=${isDraftAction ? "skip" : forumQuery} | Videos=${isDraftAction ? "skip" : videoQuery}`
           );
 
-          const [datasheetRes, officialRes, forumRes, videoRes] = await Promise.race([
-            Promise.all([
+          const withTimeout = <T,>(p: Promise<T>, ms: number, fallback: T): Promise<T> =>
+            Promise.race([
+              p.catch(() => fallback),
+              new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+            ]);
+
+          const [officialFactRes, datasheetRes, secondaryDocRes, officialRes, forumRes, videoRes] = await Promise.all([
+            withTimeout(
+              officialFactQuery
+                ? searchTechnicalWeb(officialFactQuery, 4, false, primaryBrand, multiModelHint, activeFaultDomain, false, "en")
+                : Promise.resolve([]),
+              6000,
+              []
+            ),
+            withTimeout(
               datasheetManualQuery
-                ? searchTechnicalWeb(datasheetManualQuery, 3, false, primaryBrand, hardwareModelForWeb, activeFaultDomain)
+                ? searchTechnicalWeb(datasheetManualQuery, 3, false, primaryBrand, multiModelHint, activeFaultDomain)
                 : Promise.resolve([]),
-              searchTechnicalWeb(officialQuery, 4, false, primaryBrand, hardwareModelForWeb, activeFaultDomain),
+              6000,
+              []
+            ),
+            withTimeout(
+              secondaryDatasheetQuery
+                ? searchTechnicalWeb(secondaryDatasheetQuery, 3, false, primaryBrand, multiModelHint, activeFaultDomain)
+                : Promise.resolve([]),
+              6000,
+              []
+            ),
+            withTimeout(
+              searchTechnicalWeb(officialQuery, 4, false, primaryBrand, multiModelHint, activeFaultDomain),
+              6000,
+              []
+            ),
+            withTimeout(
               !isDraftAction
-                ? searchTechnicalWeb(forumQuery, 3, true, primaryBrand, hardwareModelForWeb, activeFaultDomain)
+                ? searchTechnicalWeb(forumQuery, 3, true, primaryBrand, multiModelHint, activeFaultDomain)
                 : Promise.resolve([]),
+              6000,
+              []
+            ),
+            withTimeout(
               !isDraftAction
-                ? searchTechnicalVideos(videoQuery, 3, primaryBrand, hardwareModelForWeb)
+                ? searchTechnicalVideos(videoQuery, 3, primaryBrand, multiModelHint)
                 : Promise.resolve([]),
-            ]),
-            new Promise<[any[], any[], any[], any[]]>((resolve) => setTimeout(() => resolve([[], [], [], []]), 6000)),
+              6000,
+              []
+            ),
           ]);
 
           const isOffTopicNvrForAnalog = (r: { title: string; url: string; snippet: string }): boolean => {
@@ -2098,13 +2332,39 @@ export async function POST(req: NextRequest) {
             return true;
           };
 
-          // 1. Priorizar PDFs de fichas técnicas y manuales descargables (máx 2)
-          const pdfAndManualAll = [...datasheetRes, ...officialRes].sort((a, b) => {
-            const aPdf = /\.pdf($|\?)/i.test(a.url) ? 1 : 0;
-            const bPdf = /\.pdf($|\?)/i.test(b.url) ? 1 : 0;
-            return bPdf - aPdf;
+          // 0. Priorizar MÁXIMO la verificación oficial del fabricante en inglés (restricciones reales "not supported", EDOCs, especificaciones oficiales)
+          const sortedFactRes = [...officialFactRes].sort((a, b) => {
+            const scoreFact = (x: { title: string; url: string; snippet: string }) => {
+              const s = `${x.title} ${x.url} ${x.snippet}`;
+              let pts = 0;
+              if (/not\s+support|do\s+not\s+support|does\s+not\s+support|unsupported/i.test(s)) pts += 100;
+              if (/\b(?:edoc\d+|command|datasheet|specifications?)\b/i.test(s)) pts += 40;
+              if (/supported/i.test(s)) pts += 20;
+              return pts;
+            };
+            return scoreFact(b) - scoreFact(a);
           });
+          let factAdded = 0;
+          for (const fr of sortedFactRes) {
+            if (factAdded >= 3) break;
+            if (pushCandidate(fr)) factAdded++;
+          }
+
+          // 1. Priorizar PDFs de fichas técnicas y manuales de TODOS los modelos involucrados (1 por modelo hasta 2)
+          const sortByPdf = (arr: { title: string; url: string; snippet: string }[]) =>
+            [...arr].sort((a, b) => (/\.pdf($|\?)/i.test(b.url) ? 1 : 0) - (/\.pdf($|\?)/i.test(a.url) ? 1 : 0));
+
+          const primaryDocsSorted = sortByPdf(datasheetRes);
+          const secondaryDocsSorted = sortByPdf(secondaryDocRes);
+          const pdfAndManualAll = sortByPdf([...datasheetRes, ...secondaryDocRes, ...officialRes]);
+
           let docsAdded = 0;
+          if (secondaryDocsSorted.length > 0 && primaryDocsSorted.length > 0) {
+            const pDoc = primaryDocsSorted[0];
+            if (pushCandidate(pDoc, classifyWebSource(pDoc.url, pDoc.title, pDoc.snippet))) docsAdded++;
+            const sDoc = secondaryDocsSorted[0];
+            if (pushCandidate(sDoc, classifyWebSource(sDoc.url, sDoc.title, sDoc.snippet))) docsAdded++;
+          }
           for (const r of pdfAndManualAll) {
             if (docsAdded >= 2) break;
             const k = classifyWebSource(r.url, r.title, r.snippet);
@@ -2129,26 +2389,57 @@ export async function POST(req: NextRequest) {
             }
           }
           for (const r of officialRes) {
-            if (guidesAndForumsAdded >= 2 && merged.length >= 6) break;
+            if (guidesAndForumsAdded >= 2 && merged.length >= 7) break;
             if (pushCandidate(r)) guidesAndForumsAdded++;
           }
 
-          // 4. Completar hasta 7 candidatos totales para verificación en vivo
-          for (const r of [...pdfAndManualAll, ...forumRes, ...videoRes]) {
-            if (merged.length >= 7) break;
+          // 4. Completar hasta 8 candidatos totales para verificación en vivo
+          for (const r of [...sortedFactRes, ...pdfAndManualAll, ...forumRes, ...videoRes]) {
+            if (merged.length >= 8) break;
             pushCandidate(r);
           }
 
-          const candidateWebResults = merged.slice(0, 7);
+          const candidateWebResults = merged.slice(0, 8);
           const verifiedWebFlags = await Promise.all(candidateWebResults.map((r) => verifyUrlLive(r.url)));
-          const liveCandidates = candidateWebResults.filter((_, idx) => verifiedWebFlags[idx]).slice(0, 6);
+          const liveCandidates = candidateWebResults.filter((_, idx) => verifiedWebFlags[idx]).slice(0, 7);
 
-          retrievedWebResults = liveCandidates.map((r) => ({
-            title: r.title,
-            url: r.url,
-            snippet: r.snippet,
-            kind: r.kind,
-          }));
+          // Extraer fragmentos reales en paralelo: hasta 2 fichas/manuales PDF y hasta 2 páginas HTML estáticas oficiales/tutoriales
+          const pdfFocusTerms = [
+            ...new Set([
+              ...hardwareModelsForWeb,
+              ...activeFaultTerms.flatMap((t) => t.toLowerCase().split(/\s+/)),
+              ...queryTokens,
+            ]),
+          ].filter((t) => t.length >= 3);
+          const pdfTargets = liveCandidates
+            .filter((r) => /\.pdf($|\?)/i.test(r.url))
+            .slice(0, 2);
+          const htmlTargets = liveCandidates
+            .filter((r) => r.kind !== "video" && !/\.pdf($|\?)/i.test(r.url))
+            .slice(0, 2);
+          const excerptsByUrl = new Map<string, string>();
+          if (pdfTargets.length > 0 || htmlTargets.length > 0) {
+            const [pdfExcerpts, htmlExcerpts] = await Promise.all([
+              Promise.all(pdfTargets.map((r) => fetchPdfExcerpt(r.url, pdfFocusTerms))),
+              Promise.all(htmlTargets.map((r) => fetchReadablePageExcerpt(r.url))),
+            ]);
+            pdfTargets.forEach((r, idx) => {
+              if (pdfExcerpts[idx]) excerptsByUrl.set(r.url, pdfExcerpts[idx]);
+            });
+            htmlTargets.forEach((r, idx) => {
+              if (htmlExcerpts[idx]) excerptsByUrl.set(r.url, htmlExcerpts[idx]);
+            });
+          }
+
+          retrievedWebResults = liveCandidates.map((r) => {
+            const ex = excerptsByUrl.get(r.url);
+            return {
+              title: r.title,
+              url: r.url,
+              snippet: ex ? `${r.snippet}\nExtracto oficial verificado: ${ex}` : r.snippet,
+              kind: r.kind,
+            };
+          });
 
           if (!isDraftAction) {
             verifiedResources = liveCandidates.map((r) => {
@@ -2191,6 +2482,32 @@ export async function POST(req: NextRequest) {
         console.warn("[tech-assistant] Error en búsqueda web en vivo:", webErr?.message);
       }
     }
+
+    const evidenceCorpus = [
+      ...retrievedWebResults.map((r) => `${r.title} ${r.url} ${r.snippet}`),
+      ...retrievedKbDocs.map((d) => `${d.doc_name} ${d.snippet}`),
+      ...topPrecedents.map((p) => `${p.equipmentLabel} ${p.faultSummary} ${p.solutionText}`),
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    for (const m of hardwareModelsForWeb) {
+      if (evidenceCorpus.includes(m.toLowerCase())) {
+        verifiedModels.push(m);
+      } else {
+        unverifiedModels.push(m);
+      }
+    }
+
+    const verificationStatusBlock =
+      hardwareModelsForWeb.length > 0
+        ? `\n\nESTADO DE VERIFICACIÓN DOCUMENTAL POR MODELO:
+- Modelos CON documentación oficial verificada en [W#]/[M#]: ${verifiedModels.length > 0 ? verifiedModels.map((m) => m.toUpperCase()).join(", ") : "Ninguno"}
+- Modelos SIN documentación oficial encontrada en esta búsqueda: ${unverifiedModels.length > 0 ? unverifiedModels.map((m) => m.toUpperCase()).join(", ") : "Ninguno"}
+REGLA OBLIGATORIA DE EVIDENCIA:
+• PROHIBIDO afirmar familia/línea de producto, incompatibilidad, restricción ("solo mismo modelo", "protocolo distinto"), puerto, SDK o especificación de ningún modelo si no consta textualmente en [W#], [M#], [C#] o los adjuntos del caso.
+• Si un modelo figura en "SIN DOCUMENTACIÓN VERIFICADA", decláralo con total honestidad y NO inventes especificaciones.`
+        : "";
 
     // ── 5.5 Memoria persistente, personalidad, historial del cliente y herramientas en vivo ──
     const appliedActions: TechAppliedAction[] = [];
@@ -2247,12 +2564,20 @@ export async function POST(req: NextRequest) {
     const clipBlock = (s: string, maxChars: number): string =>
       s.length <= maxChars ? s : `${s.slice(0, maxChars).trimEnd()}...`;
 
+    const isFeatureSupportQuestion =
+      isConsultationCase ||
+      /\b(?:mesh|wds|compatible|compatibilidad|soporta|se\s+puede|en\s+mesh|api|sdk|isapi)\b/i.test(
+        primaryTopicText
+      );
+    const effectiveHistoricalPrecedents =
+      isFeatureSupportQuestion && webContext ? "" : historicalPrecedents;
+
     const ragPromptBlock = ragContext ? `\n\nMANUALES OFICIALES EN BASE DE CONOCIMIENTO SEKUNET (RAG):\n${clipBlock(ragContext, 1400)}` : "";
-    const precedentsPromptBlock = historicalPrecedents
-      ? `\n\nPRECEDENTES HISTÓRICOS REALES RESUELTOS CON ÉXITO Y CONFIRMACIÓN DEL CLIENTE (SEKUNET):\n${clipBlock(historicalPrecedents, 1800)}`
+    const precedentsPromptBlock = effectiveHistoricalPrecedents
+      ? `\n\nPRECEDENTES HISTÓRICOS REALES RESUELTOS CON ÉXITO Y CONFIRMACIÓN DEL CLIENTE (SEKUNET):\n${clipBlock(effectiveHistoricalPrecedents, 1800)}`
       : "";
     const webPromptBlock = webContext
-      ? `\n\nBÚSQUEDA WEB EN VIVO (MANUALES OFICIALES, FICHAS TÉCNICAS Y FOROS ESPECIALIZADOS):\n${clipBlock(webContext, 1400)}`
+      ? `\n\nBÚSQUEDA WEB EN VIVO (DOCUMENTACIÓN OFICIAL DEL FABRICANTE, FICHAS TÉCNICAS Y FOROS):\n${clipBlock(webContext, 5500)}`
       : "";
     const memoriesBlock =
       prioritizedMemories.length > 0
@@ -2362,7 +2687,7 @@ CONTEXTO DEL CASO ABIERTO EN PANTALLA (A QUIEN LE ESTAMOS DANDO SOPORTE):
 - Estado actual: ${targetCase?.estado || "Sin caso específico"}
 - Dispositivo registrado / detectado: ${equipoLinea}
 ${activeDomainDef ? `- Categoría técnica detectada: ${activeDomainDef.label}` : ""}
-${detectedEvidenceBlock ? `\nEQUIPOS Y EVIDENCIAS DETECTADAS EN EL CHAT:\n${detectedEvidenceBlock}` : ""}${ragPromptBlock}${precedentsPromptBlock}${webPromptBlock}${clientHistoryBlock}${memoriesBlock}${liveToolsBlock}${personalityBlock}
+${detectedEvidenceBlock ? `\nEQUIPOS Y EVIDENCIAS DETECTADAS EN EL CHAT:\n${detectedEvidenceBlock}` : ""}${ragPromptBlock}${precedentsPromptBlock}${webPromptBlock}${verificationStatusBlock}${clientHistoryBlock}${memoriesBlock}${liveToolsBlock}${personalityBlock}
 
 <<<CONVERSACION_CASO_ACTUAL>>>
 CONVERSACIÓN CRONOLÓGICA COMPLETA DEL CASO ABIERTO (con transcripciones y análisis de imágenes — LEE HASTA EL ÚLTIMO MENSAJE):
@@ -2401,6 +2726,12 @@ Lee la conversación completa en <<<CONVERSACION_CASO_ACTUAL>>> desde el inicio 
 - Prohibido adivinar especificaciones, puertos, nombres de menús o procedimientos: si algún dato no está confirmado con 100% de certeza, dilo con honestidad al técnico en lugar de rellenar o suponer.
 - En este chat privado del técnico, los tutoriales, fichas técnicas PDF, manuales, videos de YouTube y foros verificados en [W#] se muestran automáticamente debajo como tarjetas con vista previa: cítalos o descríbelos brevemente sin duplicar largas listas de URLs en el texto.
 
+0.6 REGLA ESTRICTA DE LOS 3 ESTADOS PARA FAMILIAS, FUNCIONES Y COMPATIBILIDAD (CERO SUPOSICIONES):
+- ESTADO 1 — CONFIRMADO QUE SÍ SOPORTA: Solo afirma que un modelo soporta una función o enlace si una fuente oficial del fabricante ([W#] o [M#]) confirma explícitamente esa capacidad para ese modelo exacto.
+- ESTADO 2 — CONFIRMADO QUE NO SOPORTA: Si cualquier documento oficial del fabricante en [W#] o [M#] indica explícitamente que ese modelo NO soporta la función (por ejemplo: "not supported by...", "do not support...", "The Mesh function is not supported by the following AP models: AP160 and AP361"), DEBES responder NO de forma directa citando la restricción real del fabricante (PROHIBIDO inventar pasos para configurar una función declarada no soportada, y PROHIBIDO inventar razones falsas como familias equivocadas). En cambio, indica la alternativa real soportada (ej. conexión cableada Ethernet/PoE y gestión en la app oficial, o usar modelos que sí incluyan la función).
+- ESTADO 3 — SIN CONFIRMACIÓN OFICIAL: Si las fuentes oficiales recuperadas NO confirman ni niegan explícitamente la función para ese modelo exacto, PROHIBIDO asumir que SÍ funciona y PROHIBIDO inventar que NO funciona. Declara con honestidad que no existe confirmación oficial suficiente para asegurar compatibilidad y qué documento oficial debe verificarse antes de confirmarle al cliente.
+- Siempre verifica el nombre oficial y familia exacta de CADA modelo en [W#]/[M#] (por ejemplo, tanto el AP361 como el AP160 son Huawei eKitEngine; jamás llames AirEngine a un AP eKitEngine).
+
 1. MÁXIMA PRIORIDAD A RESOLVER LA AVERÍA: El técnico te consulta para encontrar la SOLUCIÓN EXACTA. Fundamenta tu respuesta en la conversación abierta real, las evidencias adjuntas, las soluciones comprobadas en casos previos del mismo cliente o taller cuando realmente apliquen, y procedimientos técnicos exactos de la marca.
 2. FOCO Y DESTINATARIO: Tu respuesta va dirigida ÚNICA Y EXCLUSIVAMENTE al caso y cliente abierto en pantalla. Nunca menciones nombres de clientes pasados.
 ${rule3Section}
@@ -2437,6 +2768,7 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
 - Si le indicas pasos o pruebas al cliente, usa viñetas sencillas con punto ("• ") directas y numeradas si es secuencial, con instrucciones fáciles de seguir para alguien no técnico.
 - NUNCA uses jerga interna del taller ni menciones precedentes de otros clientes, manuales internos ni códigos de caso de Sekunet.
 - PROHIBIDO incluir enlaces (https://...) inventados o no verificados en el mensaje al cliente. Si incluyes un enlace oficial, debe ser únicamente uno verificado del contexto (ej. https://tpp.hikvision.com/ o https://www.hikvision.com/es-la/support/download/); si no tienes enlace verificado, explica el paso sin poner URLs.
+- PROHIBIDO afirmar familias de producto, compatibilidad o incompatibilidades ("sí se puede configurar Mesh", "solo funciona con el mismo modelo", "protocolo distinto", etc.) inventadas de memoria: aplica estrictamente los 3 Estados. Si [W#]/[M#] confirma que el fabricante NO soporta la función (como Huawei AP160 y AP361 que NO soportan Mesh según su documentación oficial), indícale con claridad al cliente que NO es compatible y recomienda conexión cableada Ethernet/PoE o modelos con soporte Mesh. Si falta confirmación oficial, dilo con honestidad sin prometer que funcionará.
 - CERO ASTERISCOS: Redacte en texto plano limpio sin asteriscos, sin encabezados con # y con viñetas decentes ("• ").
 - NO INCLUYAS la línea de fuentes consultadas en este texto, ya que este mensaje va dirigido exclusivamente al cliente final por WhatsApp.
 - DEVUELVA ÚNICAMENTE el texto que el técnico debe enviarle al cliente. No incluya introducciones como "Aquí tiene la respuesta:" ni notas dirigidas al técnico.`;
@@ -2452,7 +2784,7 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
           role: m.role === "assistant" ? "assistant" : "user",
           content: m.content,
         })),
-        temperature: 0.2,
+        temperature: 0.1,
         maxTokens: isFindResourcesAction ? 900 : 3072,
         timeoutMs: 25_000,
       });
@@ -2466,7 +2798,7 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
         const retryGen = await generateText("chat", {
           system: compactSystem,
           messages: [{ role: "user", content: userQueryOnly || message }],
-          temperature: 0.2,
+          temperature: 0.1,
           maxTokens: 1200,
           timeoutMs: 12_000,
         });
@@ -2504,6 +2836,74 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
       responseText = responseText.replace(/^(¡?Buenos\s+d[ií]as|¡?Buenas\s+tardes)\b/i, "Buenas noches");
     }
 
+    // Auditoría factual automática (segunda pasada anti-alucinaciones) antes de entregar respuesta
+    const shouldRunFactAudit =
+      !isFindResourcesAction &&
+      !isTrivialGreeting &&
+      !isMetaCorrectionOnly &&
+      responseText.length >= 60 &&
+      (isDraftAction || hardwareModelsForWeb.length > 0 || isConsultationCase);
+
+    if (shouldRunFactAudit) {
+      try {
+        const auditSystemPrompt = `Eres el Auditor Técnico de Calidad y Veracidad de Sekunet. Tu única función es detectar y corregir datos inventados, familias de producto erróneas, restricciones falsas o enlaces inventados en el BORRADOR comparándolo estrictamente contra EVIDENCIA VERIFICADA.
+
+CRITERIOS OBLIGATORIOS DE AUDITORÍA (POLÍTICA DE 3 ESTADOS):
+1. Familias y líneas de producto exactas: confirma que cada modelo citado corresponda exactamente a la familia/línea que aparece en EVIDENCIA VERIFICADA (por ejemplo, ambos AP361 y AP160 son Huawei eKitEngine; nunca decir AirEngine). La documentación oficial del fabricante [W#]/[M#] SIEMPRE prevalece sobre cualquier precedente [C#].
+2. Regla estricta SÍ / NO / SIN CONFIRMACIÓN contra EVIDENCIA VERIFICADA:
+   - Si EVIDENCIA VERIFICADA incluye un documento oficial del fabricante indicando explícitamente que un modelo NO soporta una función (ej. "not supported by...", "do not support...", "The Mesh function is not supported by the following AP models: AP160 and AP361") y el BORRADOR dice que SÍ se puede configurar o da pasos para habilitarla, REESCRIBE el borrador dejando claro que NO lo soporta según la documentación oficial del fabricante, aclara las familias reales y recomienda la alternativa cableada (Ethernet/PoE) o modelos compatibles.
+   - Si EVIDENCIA VERIFICADA no contiene tal prohibición oficial, elimina cualquier restricción inventada ("solo funciona con el mismo modelo", "protocolos incompatibles", etc.) y declara honestamente si falta confirmación oficial.
+3. Modelos sin documentación: si algún modelo figura en "SIN DOCUMENTACIÓN VERIFICADA" y el borrador inventa sus especificaciones o compatibilidad, reescribe aclarando con honestidad que no se encontró documentación oficial verificada para ese modelo y limita los datos técnicos a lo sí comprobado.
+4. Cero enlaces, SDK o herramientas inexistentes: elimina URLs inventadas y nombres falsos como "developer.hikvision.com" o "Face SDK" (los oficiales Hikvision son ISAPI, Device Network SDK e ISUP).
+5. Formato y destinatario: CERO asteriscos (*), CERO encabezados con #, viñetas con ("• ") y pasos numerados. ${
+          isDraftAction
+            ? "Es un BORRADOR PARA EL CLIENTE por WhatsApp: mantén tono amable y directo hacia el cliente, sin mencionar fuentes internas [W#]/[M#]/[C#] ni notas internas de taller."
+            : "Es una respuesta PRIVADA PARA EL TÉCNICO DE TALLER: conserva estructura clara y directa."
+        }
+
+REGLA DE RESPUESTA:
+- Si el borrador cumple TODOS los puntos anteriores sin errores ni afirmaciones sin respaldo, responde ÚNICAMENTE con la palabra exacta: VERIFIED_OK
+- Si detectas cualquier error, contradicción o dato inventado, responde ÚNICAMENTE con la versión corregida completa lista para entregar, sin introducciones ni explicaciones meta ("Versión corregida:", etc.).`;
+
+        const auditPayload = [
+          `CASO / CONSULTA:\nEquipo: ${equipoLinea}\nModelos sin doc verificada: ${unverifiedModels.length > 0 ? unverifiedModels.map((m) => m.toUpperCase()).join(", ") : "Ninguno"}\nSolicitud: ${displayMsg}\nChat reciente:\n${openCaseConversation.slice(-2000)}`,
+          `EVIDENCIA VERIFICADA:\n${[
+            webContext ? clipBlock(webContext, 5200) : "Sin resultados web",
+            ragContext ? clipBlock(ragContext, 1000) : "",
+            effectiveHistoricalPrecedents ? clipBlock(effectiveHistoricalPrecedents, 800) : "",
+          ]
+            .filter(Boolean)
+            .join("\n\n")}`,
+          `BORRADOR A AUDITAR:\n${responseText}`,
+        ].join("\n\n===\n\n");
+
+        const auditRes = await generateText("chat", {
+          system: auditSystemPrompt,
+          messages: [{ role: "user", content: auditPayload }],
+          temperature: 0.0,
+          maxTokens: isDraftAction ? 1400 : 1800,
+          timeoutMs: 10_000,
+        });
+
+        if (auditRes?.text) {
+          const rawAudit = auditRes.text.trim();
+          if (/^VERIFIED_OK\b/i.test(rawAudit)) {
+            console.log("[tech-assistant] ✅ Fact-check audit: VERIFIED_OK");
+          } else {
+            const cleanedAudit = cleanAiFormatting(
+              rawAudit.replace(/^VERIFIED_OK\b[\s:.-]*/i, "").trim()
+            );
+            if (cleanedAudit.length >= 50) {
+              responseText = cleanedAudit;
+              console.log("[tech-assistant] 🛡️ Fact-check audit corrigió respuesta antes de entregarla");
+            }
+          }
+        }
+      } catch (auditErr: any) {
+        console.warn("[tech-assistant] Audit check saltado por excepción:", auditErr?.message);
+      }
+    }
+
     responseText = await verifyAndCleanResponseUrls(responseText);
 
     // Ejecutar acción estructurada si el técnico la solicitó y el agente la emitió
@@ -2530,9 +2930,6 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
       }
     }
 
-    let clientDraftText = responseText;
-    let assistantDisplayContent = responseText;
-
     const aiSourcesMatch = responseText.match(/\n*(?:Fuentes(?:\s+t[eé]cnicas)?\s+consultadas|Fuentes:)([\s\S]*)$/i);
     const aiSourcesRaw = aiSourcesMatch ? aiSourcesMatch[1] : "";
 
@@ -2540,6 +2937,12 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
       .replace(/\n*(?:Fuentes(?:\s+t[eé]cnicas)?\s+consultadas|Fuentes:).*$/is, "")
       .replace(/\s*\[(?:C|M|W)\d+\]/g, "")
       .trim();
+
+    if (isDraftAction) {
+      responseText = cleanBody;
+    }
+    const clientDraftText = isDraftAction ? cleanBody : responseText;
+    let assistantDisplayContent = responseText;
 
     // Detectar qué etiquetas específicas ([C1], [M1], [W1]) seleccionó la IA para mostrar solo fuentes pertinentes
     const aiCitedM = new Set([...aiSourcesRaw.matchAll(/\[?M(\d+)\]?/gi)].map((m) => Number(m[1]) - 1));
@@ -2589,12 +2992,23 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
       finalSources.push("Conversación del caso actual");
     }
 
+    const bodyWithVerificationNote =
+      !isDraftAction &&
+      unverifiedModels.length > 0 &&
+      !/no se (?:encontr[oó]|obtuvo|pudo verificar) documentaci[oó]n oficial/i.test(cleanBody)
+        ? `${cleanBody}\n\nNota de verificación: No se encontró documentación oficial en vivo para ${unverifiedModels
+            .map((m) => m.toUpperCase())
+            .join(", ")}; confirme esos datos en la ficha del fabricante antes de enviarlos al cliente.`
+        : cleanBody;
+
     if (isDraftAction) {
       assistantDisplayContent =
         finalSources.length > 0 ? `${responseText}\n\nFuentes consultadas: ${finalSources.join(", ")}.` : responseText;
     } else {
       assistantDisplayContent =
-        finalSources.length > 0 ? `${cleanBody}\n\nFuentes consultadas: ${finalSources.join(", ")}.` : cleanBody;
+        finalSources.length > 0
+          ? `${bodyWithVerificationNote}\n\nFuentes consultadas: ${finalSources.join(", ")}.`
+          : bodyWithVerificationNote;
     }
 
     const assistantMsg: TechMessage = {
@@ -2709,6 +3123,162 @@ function decodeBingUrl(rawUrl: string): string {
   return rawUrl;
 }
 
+function unwrapRedirectUrl(rawUrl: string): string {
+  const s = String(rawUrl || "").trim();
+  if (!s) return "";
+  if (s.includes("translate.google.com/translate")) {
+    try {
+      const parsed = new URL(s);
+      const u = parsed.searchParams.get("u");
+      if (u && /^https?:\/\//i.test(u)) return u;
+    } catch {}
+  }
+  return decodeBingUrl(decodeYahooUrl(s));
+}
+
+const pdfExcerptCache = new Map<string, { at: number; text: string }>();
+const PDF_EXCERPT_CACHE_TTL_MS = 30 * 60_000;
+const PDF_EXCERPT_CACHE_MAX = 60;
+
+async function fetchPdfExcerpt(rawUrl: string, focusTerms: string[] = []): Promise<string> {
+  if (!rawUrl || !/\.pdf($|\?)/i.test(rawUrl)) return "";
+  const focusKey = focusTerms.map((t) => t.toLowerCase().trim()).filter(Boolean).slice(0, 6).join(",");
+  const cacheKey = `${rawUrl}|${focusKey}`;
+  const hit = pdfExcerptCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < PDF_EXCERPT_CACHE_TTL_MS) {
+    return hit.text;
+  }
+
+  let excerpt = "";
+  try {
+    const res = await fetch(rawUrl, {
+      method: "GET",
+      redirect: "follow",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36",
+        "Accept": "application/pdf,*/*;q=0.8",
+      },
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      return "";
+    }
+    const contentLen = Number(res.headers.get("content-length") || 0);
+    if (contentLen > 2_800_000) {
+      await res.body?.cancel().catch(() => {});
+      return "";
+    }
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+    const arrBuf = await res.arrayBuffer();
+    if (arrBuf.byteLength > 2_800_000 || arrBuf.byteLength < 64) return "";
+    const buf = Buffer.from(arrBuf);
+    const isPdfSignature = buf.subarray(0, 5).toString("ascii") === "%PDF-";
+    if (!ct.includes("pdf") && !isPdfSignature) return "";
+
+    // @ts-ignore pdf-parse ships untyped JS in node_modules
+    const pdfMod: any = await import("pdf-parse/lib/pdf-parse.js").catch(() => import("pdf-parse"));
+    const pdfParse = pdfMod.default || pdfMod;
+    const parsed = await pdfParse(buf);
+    const rawText = String(parsed?.text || "");
+    if (!rawText.trim()) return "";
+
+    const lines = rawText
+      .split(/\r?\n/)
+      .map((l) => l.replace(/\s+/g, " ").trim())
+      .filter((l) => l.length >= 4);
+
+    const headerLines = lines.slice(0, 6);
+    const coreCapabilityRe =
+      /\b(?:ekitengine|airengine|fit|fat|cloud|leader|mesh|wds|poe|isapi|sdk|isup|onvif|rtsp|vlan|roaming|bridge|repeater|backhaul|smart\s+antenna|wi-?fi\s*6|802\.11ax|wall\s+plate|datasheet)\b/i;
+
+    const cleanFocus = focusTerms
+      .map((t) => t.toLowerCase().trim())
+      .filter((t) => t.length >= 3);
+
+    const matchedSet = new Set<string>();
+    const matchedLines: string[] = [];
+    for (const ln of lines) {
+      if (headerLines.includes(ln)) continue;
+      const lowerLn = ln.toLowerCase();
+      const matchesFocus = cleanFocus.some((ft) => lowerLn.includes(ft));
+      if (matchesFocus || coreCapabilityRe.test(ln)) {
+        if (!matchedSet.has(lowerLn)) {
+          matchedSet.add(lowerLn);
+          matchedLines.push(ln);
+          if (matchedLines.length >= 10) break;
+        }
+      }
+    }
+
+    const concreteFeatures = cleanFocus.filter((t) =>
+      /^(?:mesh|wds|isapi|sdk|isup|poe|vlan|onvif|rtsp|facial|osd|ptz|bridge|repeater|backhaul)$/i.test(t)
+    );
+    const lowerFullText = rawText.toLowerCase();
+    const missingFeatures = [...new Set(concreteFeatures)].filter((feat) => !lowerFullText.includes(feat));
+
+    const parts = [...new Set([...headerLines, ...matchedLines])];
+    if (missingFeatures.length > 0) {
+      parts.push(
+        `[Nota documental: la ficha resumida PDF no detalla explícitamente "${missingFeatures.join(", ")}" — verifique esa función en la guía de configuración oficial antes de afirmar compatibilidad o incompatibilidad]`
+      );
+    }
+
+    excerpt = parts.join(" | ").replace(/\s+/g, " ").trim().slice(0, 750);
+  } catch {
+    excerpt = "";
+  }
+
+  if (pdfExcerptCache.size >= PDF_EXCERPT_CACHE_MAX) {
+    const oldest = pdfExcerptCache.keys().next().value;
+    if (oldest) pdfExcerptCache.delete(oldest);
+  }
+  pdfExcerptCache.set(cacheKey, { at: Date.now(), text: excerpt });
+  return excerpt;
+}
+
+async function fetchReadablePageExcerpt(rawUrl: string): Promise<string> {
+  if (!rawUrl || /\.pdf($|\?)/i.test(rawUrl) || extractYouTubeId(rawUrl)) return "";
+  try {
+    const res = await fetch(rawUrl, {
+      method: "GET",
+      redirect: "follow",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36",
+        "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+      },
+      signal: AbortSignal.timeout(2200),
+    });
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      return "";
+    }
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+    if (!ct.includes("text/html")) {
+      await res.body?.cancel().catch(() => {});
+      return "";
+    }
+    const html = await res.text();
+    const clean = html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<nav[\s\S]*?<\/nav>/gi, " ")
+      .replace(/<header[\s\S]*?<\/header>/gi, " ")
+      .replace(/<footer[\s\S]*?<\/footer>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&gt;/gi, ">")
+      .replace(/&lt;/gi, "<")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (clean.length < 250) return "";
+    return clean.slice(0, 500);
+  } catch {
+    return "";
+  }
+}
+
 function isStrictlyRelevant(
   title: string,
   url: string,
@@ -2728,7 +3298,7 @@ function isStrictlyRelevant(
 
   // Permitir subreddits especializados en CCTV, redes y control de acceso antes de bloquear el resto de Reddit
   const isTechSubreddit =
-    /reddit\.com\/r\/(?:hikvision|homedefense|securitycameras|cctv|ubiquiti|mikrotik|accesscontrol)\b/i.test(urlLow);
+    /reddit\.com\/r\/(?:hikvision|homedefense|securitycameras|cctv|ubiquiti|mikrotik|accesscontrol|networking|huawei)\b/i.test(urlLow);
 
   const JUNK_DOMAINS = [
     "facebook.com", "instagram.com", "tiktok.com",
@@ -2760,6 +3330,7 @@ function isStrictlyRelevant(
       hikvision: ["dahuasecurity.com", "dahuawiki.com", "zkteco.com", "dsc.com"],
       dahua: ["hikvision.com", "zkteco.com", "dsc.com"],
       dsc: ["hikvision.com", "dahuasecurity.com", "zkteco.com", "johnsoncontrols.com"],
+      huawei: ["hikvision.com", "dahuasecurity.com", "zkteco.com", "dsc.com", "ui.com", "tp-link.com"],
     };
     const bannedDomains = COMPETING_DOMAINS[b] || [];
     for (const bd of bannedDomains) {
@@ -2767,7 +3338,7 @@ function isStrictlyRelevant(
     }
 
     const mentionsOurBrand = full.includes(b);
-    const hasCompetingBrandInTitle = ["hikvision", "dahua", "zkteco", "dsc", "paradox", "axis", "uniview"]
+    const hasCompetingBrandInTitle = ["hikvision", "dahua", "zkteco", "dsc", "paradox", "axis", "uniview", "huawei"]
       .filter((k) => k !== b)
       .some((k) => title.toLowerCase().includes(k));
     if (hasCompetingBrandInTitle && !mentionsOurBrand) {
@@ -2775,19 +3346,25 @@ function isStrictlyRelevant(
     }
   }
 
-  const m = (modelHint || "").toLowerCase().trim();
+  const modelTokens = String(modelHint || "")
+    .toLowerCase()
+    .split(/[\s,]+/)
+    .map((x) => x.trim())
+    .filter((x) => x.length >= 3);
   const hasBrand = Boolean(b && full.includes(b));
-  const hasModel = Boolean(m && full.includes(m));
-  if (isVideoHost && (b || m)) {
+  const hasModel = modelTokens.some((m) => full.includes(m));
+  if (isVideoHost && (b || modelTokens.length > 0)) {
     return hasBrand || hasModel;
   }
 
   const isKnownTechnicalDomain = [
     "hikvision.com", "assets.hikvision.com", "hikgrid.com", "hilook.com", "ezviz.com", "support.ezviz.com",
-    "dahuasecurity.com", "dahuawiki.com", "zkteco.com", "tp-link.com", "uniview.com", "paradox.com",
+    "dahuasecurity.com", "dahuawiki.com", "zkteco.com", "tp-link.com", "community.tp-link.com", "uniview.com", "paradox.com",
     "manualslib.com", "manualsdir.com", "manualzz.com", "dsc.com", "epcom.net", "syscom.mx", "anviz.com",
     "cctvforum.com", "ipcamtalk.com", "ipvm.com", "use-ip.co.uk", "axis.com",
-    "ubnt.com", "ui.com", "mikrotik.com", "johnsoncontrols.com"
+    "ubnt.com", "ui.com", "community.ui.com", "help.ui.com", "mikrotik.com", "help.mikrotik.com", "forum.mikrotik.com",
+    "johnsoncontrols.com", "huawei.com", "support.huawei.com", "e.huawei.com", "ekit.huawei.com", "e-file.huawei.com",
+    "forum.huawei.com", "ruijienetworks.com", "grandstream.com", "arubanetworks.com", "cisco.com", "fortinet.com"
   ].some((td) => urlLow.includes(td));
 
   const isManualOrPdf = urlLow.endsWith(".pdf") || full.includes("manual") || full.includes("datasheet") || full.includes("user guide");
@@ -2802,7 +3379,7 @@ function getManufacturerFallback(
   domainId: string
 ): { title: string; url: string; snippet: string }[] {
   const b = (brandHint || query).toLowerCase();
-  const m = (modelHint || "").toUpperCase().trim();
+  const m = (modelHint || "").toUpperCase().trim().split(/\s+/)[0] || "";
   const refs: { title: string; url: string; snippet: string }[] = [];
 
   if (b.includes("zkteco") || b.includes("biotime") || b.includes("zkbio")) {
@@ -2837,6 +3414,35 @@ function getManufacturerFallback(
       title: `Portal de Descargas, Herramientas SADP y Firmware Oficial Hikvision`,
       url: `https://www.hikvision.com/es-la/support/download/`,
       snippet: `Herramientas oficiales SADP, iVMS-4200 y documentación técnica oficial.`,
+    });
+  } else if (b.includes("huawei") || b.includes("ekit")) {
+    refs.push({
+      title: `HUAWEI eKit — Portal Oficial de Equipos, Documentación y Soporte eKitEngine`,
+      url: `https://ekit.huawei.com/`,
+      snippet: `Documentación oficial, guías de configuración Mesh y fichas técnicas de puntos de acceso Huawei eKitEngine.`,
+    });
+    refs.push({
+      title: `Huawei Enterprise Support — Manuales y Guías WLAN eKitEngine`,
+      url: `https://support.huawei.com/enterprise/en/index.html`,
+      snippet: `Centro de soporte técnico oficial de Huawei Enterprise con manuales, compatibilidad y firmware.`,
+    });
+  } else if (b.includes("ubiquiti") || b.includes("unifi") || b.includes("airmax")) {
+    refs.push({
+      title: `Ubiquiti Help Center — Guías Oficiales UniFi y airMAX`,
+      url: `https://help.ui.com/`,
+      snippet: `Documentación oficial de configuración de Mesh, enlaces inalámbricos airMAX y controladores UniFi.`,
+    });
+  } else if (b.includes("mikrotik") || b.includes("routeros")) {
+    refs.push({
+      title: `MikroTik Documentation — RouterOS y Wireless Oficial`,
+      url: `https://help.mikrotik.com/docs/`,
+      snippet: `Documentación oficial de configuración de red, routing, bridge y enlaces inalámbricos MikroTik.`,
+    });
+  } else if (b.includes("tp-link") || b.includes("tplink") || b.includes("omada")) {
+    refs.push({
+      title: `TP-Link Official Support — Omada SDN y Puntos de Acceso`,
+      url: `https://www.tp-link.com/support/`,
+      snippet: `Manuales oficiales, fichas técnicas y guías de configuración de Mesh y controlador Omada.`,
     });
   } else if (b.includes("dahua") || b.includes("smartpss") || b.includes("dmss")) {
     refs.push({
@@ -3008,10 +3614,11 @@ async function searchTechnicalWeb(
   brandHint = "",
   modelHint = "",
   domainId = "",
-  allowVideos = false
+  allowVideos = false,
+  lang: "es" | "en" = "es"
 ): Promise<{ title: string; url: string; snippet: string }[]> {
   const finalQuery = isForum ? `${query} foro comunidad` : query;
-  const cacheKey = `${finalQuery.toLowerCase()}|${brandHint}|${modelHint}|${allowVideos ? 1 : 0}|${limit}`;
+  const cacheKey = `${finalQuery.toLowerCase()}|${brandHint}|${modelHint}|${allowVideos ? 1 : 0}|${lang}|${limit}`;
   const cached = webSearchCache.get(cacheKey);
   if (cached && Date.now() - cached.at < WEB_SEARCH_CACHE_TTL_MS) {
     return cached.results;
@@ -3021,33 +3628,42 @@ async function searchTechnicalWeb(
   const seenUrls = new Set<string>();
 
   const pushResult = (title: string, url: string, snippet: string) => {
-    if (!url || !url.startsWith("http")) return;
-    if (url.includes("duckduckgo.com") || url.includes("bing.com") || url.includes("search.yahoo.com")) return;
+    const cleanUrl = unwrapRedirectUrl(url);
+    if (!cleanUrl || !cleanUrl.startsWith("http")) return;
+    if (
+      cleanUrl.includes("duckduckgo.com") ||
+      cleanUrl.includes("bing.com") ||
+      cleanUrl.includes("search.yahoo.com") ||
+      /google\.[^/]+\/(?:goto|translate)/i.test(cleanUrl)
+    ) {
+      return;
+    }
     const cleanTitle = title.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/[()]/g, "").trim();
     if (cleanTitle.length < 4) return;
 
-    if (!isStrictlyRelevant(cleanTitle, url, snippet, brandHint, modelHint, allowVideos)) {
+    if (!isStrictlyRelevant(cleanTitle, cleanUrl, snippet, brandHint, modelHint, allowVideos)) {
       return;
     }
 
-    const key = url.replace(/[#?].*$/, "").toLowerCase();
+    const key = cleanUrl.replace(/[#?].*$/, "").toLowerCase();
     if (seenUrls.has(key)) return;
     seenUrls.add(key);
-    let domain = url;
+    let domain = cleanUrl;
     try {
-      domain = new URL(url).hostname.replace(/^www\./, "");
+      domain = new URL(cleanUrl).hostname.replace(/^www\./, "");
     } catch {}
     const cleanSnippet = snippet
       ? snippet.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").trim()
       : `Documentación técnica (${domain}): ${cleanTitle}`;
     results.push({
       title: cleanTitle,
-      url,
+      url: cleanUrl,
       snippet: cleanSnippet,
     });
   };
 
   // 0. Motor Principal: Serper (Google Search API oficial, sin captchas, soporta multi-llave)
+  let serperOk = false;
   try {
     const provs = await getProviderConfigs();
     const serperCfg = provs.get("serper");
@@ -3065,20 +3681,28 @@ async function searchTechnicalWeb(
             },
             body: JSON.stringify({
               q: finalQuery,
-              gl: "cr",
-              hl: "es",
+              gl: lang === "en" ? "us" : "cr",
+              hl: lang,
               num: Math.max(limit + 3, 6),
             }),
             signal: AbortSignal.timeout(4500),
           });
           if (res.ok) {
             markModelSuccess(ck);
+            serperOk = true;
             const data = await res.json().catch(() => ({} as any));
             if (data?.answerBox?.link && data?.answerBox?.title) {
               pushResult(
                 String(data.answerBox.title),
                 String(data.answerBox.link),
                 String(data.answerBox.snippet || data.answerBox.answer || "")
+              );
+            }
+            if (data?.knowledgeGraph?.description && data?.knowledgeGraph?.descriptionLink) {
+              pushResult(
+                String(data.knowledgeGraph.title || query),
+                String(data.knowledgeGraph.descriptionLink),
+                String(data.knowledgeGraph.description)
               );
             }
             const organic = Array.isArray(data?.organic) ? data.organic : [];
@@ -3090,7 +3714,18 @@ async function searchTechnicalWeb(
                 String(item?.snippet || "")
               );
             }
-            if (results.length > 0) break;
+            const paa = Array.isArray(data?.peopleAlsoAsk) ? data.peopleAlsoAsk : [];
+            for (const qItem of paa) {
+              if (results.length >= limit) break;
+              if (qItem?.link && qItem?.snippet) {
+                pushResult(
+                  String(qItem?.title || qItem?.question || query),
+                  String(qItem.link),
+                  String(qItem.snippet)
+                );
+              }
+            }
+            if (results.length > 0 || serperOk) break;
           } else {
             markModelFailure(ck, res.status);
             console.warn(`[tech-assistant] Serper #${ki} error HTTP ${res.status}`);
@@ -3105,8 +3740,8 @@ async function searchTechnicalWeb(
     console.warn("[tech-assistant] Error general en Serper:", err?.message);
   }
 
-  // 1. Motor Secundario: DuckDuckGo HTML Search (solo si Serper no completó los resultados)
-  if (results.length < limit) {
+  // 1. Motor Secundario: DuckDuckGo HTML Search (solo si los motores anteriores devolvieron 0 resultados)
+  if (results.length === 0) {
     try {
       const res = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(finalQuery)}`, {
         headers: {
@@ -3114,7 +3749,7 @@ async function searchTechnicalWeb(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
           "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
         },
-        signal: AbortSignal.timeout(4500),
+        signal: AbortSignal.timeout(3000),
       });
       if (res.ok) {
         const html = await res.text();
@@ -3138,8 +3773,8 @@ async function searchTechnicalWeb(
     }
   }
 
-  // 1b. DuckDuckGo Lite (respaldo ultra ligero cuando HTML devuelve challenge)
-  if (results.length < limit) {
+  // 1b. DuckDuckGo Lite (respaldo ultra ligero cuando HTML devuelve 0)
+  if (results.length === 0) {
     try {
       const res = await fetch(`https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(finalQuery)}`, {
         headers: {
@@ -3147,7 +3782,7 @@ async function searchTechnicalWeb(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
           "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
         },
-        signal: AbortSignal.timeout(4500),
+        signal: AbortSignal.timeout(3000),
       });
       if (res.ok) {
         const html = await res.text();
@@ -3171,8 +3806,8 @@ async function searchTechnicalWeb(
     }
   }
 
-  // 2. Motor Secundario: Yahoo Search (complementa si faltan resultados reales)
-  if (results.length < limit) {
+  // 2. Motor Secundario: Yahoo Search (solo si seguimos con 0 resultados reales)
+  if (results.length === 0) {
     try {
       const res = await fetch(`https://search.yahoo.com/search?p=${encodeURIComponent(finalQuery)}`, {
         headers: {
@@ -3180,7 +3815,7 @@ async function searchTechnicalWeb(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
           "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
         },
-        signal: AbortSignal.timeout(4500),
+        signal: AbortSignal.timeout(3000),
       });
       if (res.ok) {
         const html = await res.text();
@@ -3202,8 +3837,8 @@ async function searchTechnicalWeb(
     }
   }
 
-  // 3. Motor Terciario: Bing Search (solo si DDG + Yahoo devolvieron menos de 2 resultados)
-  if (results.length < 2) {
+  // 3. Motor Terciario: Bing Search (solo si seguimos con 0 resultados reales)
+  if (results.length === 0) {
     try {
       const res = await fetch(`https://www.bing.com/search?q=${encodeURIComponent(finalQuery)}`, {
         headers: {
@@ -3211,7 +3846,7 @@ async function searchTechnicalWeb(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
           "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
         },
-        signal: AbortSignal.timeout(4000),
+        signal: AbortSignal.timeout(3000),
       });
       if (res.ok) {
         const html = await res.text();
@@ -3291,11 +3926,13 @@ async function searchTechnicalWeb(
     }
   }
 
-  // 5. Portales oficiales del fabricante garantizados según marca/modelo para completar resultados faltantes
-  const fallbacks = getManufacturerFallback(brandHint, modelHint, query, domainId);
-  for (const fb of fallbacks) {
-    if (results.length >= limit) break;
-    pushResult(fb.title, fb.url, fb.snippet);
+  // 5. Portales oficiales del fabricante garantizados según marca/modelo para completar resultados faltantes (solo si no es búsqueda exclusiva de video)
+  if (!allowVideos) {
+    const fallbacks = getManufacturerFallback(brandHint, modelHint, query, domainId);
+    for (const fb of fallbacks) {
+      if (results.length >= limit) break;
+      pushResult(fb.title, fb.url, fb.snippet);
+    }
   }
 
   const finalSlice = results.slice(0, limit);

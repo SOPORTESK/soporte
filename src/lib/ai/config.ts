@@ -235,7 +235,7 @@ export function isModelCooledDown(key: string): boolean {
 
 export function markModelFailure(key: string, status?: number): void {
   const ms =
-    status === 402 || status === 404 || status === 410
+    status === 401 || status === 402 || status === 403 || status === 404 || status === 410
       ? COOLDOWN_DEAD_MS
       : status === 429
         ? COOLDOWN_RATE_MS
