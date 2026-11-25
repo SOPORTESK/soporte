@@ -27,9 +27,15 @@ import {
   Plus,
   Trash2,
   StickyNote,
+  Play,
+  Download,
+  Video,
+  FileDown,
+  Lock,
 } from "lucide-react";
 import { toast } from "sonner";
 import ReactDraggable, { DraggableEvent, DraggableData } from "react-draggable";
+import type { TechResource, TechResourceKind } from "@/lib/tech-assistant-agent";
 const Draggable = ReactDraggable as any;
 
 interface TechMessage {
@@ -39,6 +45,7 @@ interface TechMessage {
   mediaUrl?: string;
   mediaType?: string;
   fileName?: string;
+  resources?: TechResource[];
 }
 
 interface PendingAttachment {
@@ -555,6 +562,40 @@ export function FloatingTechAssistant() {
     }
   };
 
+  const findCaseResources = async () => {
+    const resolved = caseId || resolveCurrentCaseId();
+    if (!resolved || loading) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/tech-assistant/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "find_resources",
+          displayMessage: "Buscar tutoriales, manuales, fichas técnicas, videos y foros para este caso",
+          case_id: resolved,
+          messages: messages.slice(-9),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error buscando recursos");
+      const finalMessages = (data.messages || []).slice(-10);
+      setMessages(finalMessages);
+      localStorage.setItem(
+        "sek_tech_assistant_session_v9",
+        JSON.stringify({
+          session_id: sessionId || null,
+          messages: finalMessages,
+        })
+      );
+    } catch (e: any) {
+      toast.error(e?.message || "No se pudieron buscar recursos");
+    } finally {
+      setLoading(false);
+      inputRef.current?.focus();
+    }
+  };
+
   const startNewCaseChat = async () => {
     const resolved = resolveCurrentCaseId();
     setCaseId(resolved);
@@ -756,18 +797,32 @@ export function FloatingTechAssistant() {
 
             <div className="flex items-center gap-1 shrink-0">
               {!isMinimized && caseId && (
-                <button
-                  type="button"
-                  onClick={startNewCaseChat}
-                  disabled={loading}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onTouchStart={(e) => e.stopPropagation()}
-                  className="inline-flex items-center gap-1 text-[11px] font-semibold bg-white text-violet-700 hover:bg-violet-50 disabled:opacity-50 px-2 py-1 rounded-lg cursor-pointer transition-all shadow-xs whitespace-nowrap shrink-0"
-                  title="Diagnosticar el caso en pantalla contra la base de datos y manuales"
-                >
-                  <Sparkles className="h-3 w-3 shrink-0" />
-                  <span>Analizar Caso</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={startNewCaseChat}
+                    disabled={loading}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold bg-white text-violet-700 hover:bg-violet-50 disabled:opacity-50 px-2 py-1 rounded-lg cursor-pointer transition-all shadow-xs whitespace-nowrap shrink-0"
+                    title="Diagnosticar el caso en pantalla contra la base de datos y manuales"
+                  >
+                    <Sparkles className="h-3 w-3 shrink-0" />
+                    <span>Analizar Caso</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={findCaseResources}
+                    disabled={loading}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold bg-white/15 hover:bg-white/25 text-white border border-white/20 disabled:opacity-50 px-2 py-1 rounded-lg cursor-pointer transition-all whitespace-nowrap shrink-0"
+                    title="Buscar videos, manuales, fichas técnicas PDF y foros para este caso (solo chat privado)"
+                  >
+                    <Video className="h-3 w-3 shrink-0" />
+                    <span className="hidden sm:inline">Recursos</span>
+                  </button>
+                </>
               )}
               {!isMinimized && messages.length > 0 && (
                 <button
@@ -860,14 +915,24 @@ export function FloatingTechAssistant() {
                       Conectado en tiempo real a los 1,494 casos históricos resueltos en taller, manuales técnicos oficiales y documentación de fabricantes.
                     </p>
                     {caseId && (
-                      <button
-                        type="button"
-                        onClick={startNewCaseChat}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold shadow-sm transition-all cursor-pointer"
-                      >
-                        <Sparkles className="h-3.5 w-3.5" />
-                        <span>Diagnosticar Caso Abierto Ahora</span>
-                      </button>
+                      <div className="flex flex-wrap items-center justify-center gap-2">
+                        <button
+                          type="button"
+                          onClick={startNewCaseChat}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold shadow-sm transition-all cursor-pointer"
+                        >
+                          <Sparkles className="h-3.5 w-3.5" />
+                          <span>Diagnosticar Caso Abierto</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={findCaseResources}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-muted hover:bg-muted/80 text-foreground border border-border text-xs font-semibold transition-all cursor-pointer"
+                        >
+                          <Video className="h-3.5 w-3.5 text-rose-500" />
+                          <span>Buscar Recursos y Videos</span>
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}
@@ -898,6 +963,9 @@ export function FloatingTechAssistant() {
                         {m.role === "assistant" ? (
                           <>
                             {renderAssistantMessage(m.content, handleOpenHistoricalCase, handleOpenManual)}
+                            {Array.isArray(m.resources) && m.resources.length > 0 && (
+                              <TechResourcesGallery resources={m.resources} />
+                            )}
                             {caseId && (
                               <div className="mt-2 pt-1.5 border-t border-border/50 flex justify-end">
                                 <button
@@ -1557,6 +1625,185 @@ function renderSourcesFooter(
       {cards.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 w-full">{cards}</div>
       )}
+    </div>
+  );
+}
+
+const RESOURCE_BADGE_CFG: Record<
+  TechResourceKind,
+  { label: string; badgeClass: string; borderClass: string }
+> = {
+  video: {
+    label: "Video",
+    badgeClass: "bg-rose-500/15 text-rose-600 dark:text-rose-400",
+    borderClass: "border-rose-500/25 hover:border-rose-500/50",
+  },
+  datasheet: {
+    label: "Ficha técnica",
+    badgeClass: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+    borderClass: "border-amber-500/25 hover:border-amber-500/50",
+  },
+  manual: {
+    label: "Manual",
+    badgeClass: "bg-orange-500/15 text-orange-700 dark:text-orange-300",
+    borderClass: "border-orange-500/25 hover:border-orange-500/50",
+  },
+  tutorial: {
+    label: "Tutorial",
+    badgeClass: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+    borderClass: "border-emerald-500/25 hover:border-emerald-500/50",
+  },
+  foro: {
+    label: "Foro técnico",
+    badgeClass: "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300",
+    borderClass: "border-indigo-500/25 hover:border-indigo-500/50",
+  },
+  oficial: {
+    label: "Oficial",
+    badgeClass: "bg-sky-500/15 text-sky-700 dark:text-sky-300",
+    borderClass: "border-sky-500/25 hover:border-sky-500/50",
+  },
+};
+
+function TechResourcePreviewCard({ resource }: { resource: TechResource }) {
+  const [preview, setPreview] = React.useState<{
+    title?: string;
+    description?: string | null;
+    image?: string | null;
+    domain?: string;
+    isVideo?: boolean;
+    isPdf?: boolean;
+  } | null>(null);
+  const [imgError, setImgError] = React.useState(false);
+
+  React.useEffect(() => {
+    let active = true;
+    setImgError(false);
+    if (resource.image && resource.kind === "video") {
+      return () => {
+        active = false;
+      };
+    }
+    fetch(`/api/link-preview?v=2&url=${encodeURIComponent(resource.url)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (active && d?.ok) {
+          setPreview(d);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [resource.url, resource.image, resource.kind]);
+
+  const cfg = RESOURCE_BADGE_CFG[resource.kind] || RESOURCE_BADGE_CFG.oficial;
+  const thumbUrl = resource.image || preview?.image || null;
+  const isVideo = resource.kind === "video" || Boolean(preview?.isVideo);
+  const isPdf = Boolean(resource.isPdf || preview?.isPdf || /\.pdf($|\?)/i.test(resource.url));
+  const displayTitle =
+    resource.title ||
+    (preview?.title && preview.title !== resource.domain ? preview.title : resource.url);
+  const displayDesc = resource.channel
+    ? `${resource.channel}${resource.duration ? ` • ${resource.duration}` : ""}`
+    : resource.snippet || preview?.description || "";
+  const cleanDomain = resource.domain || preview?.domain || extractCleanDomain(resource.url).domain;
+
+  return (
+    <a
+      href={resource.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className={`group rounded-xl border bg-card/85 hover:bg-card overflow-hidden transition-all flex flex-col justify-between min-w-0 shadow-2xs ${cfg.borderClass}`}
+      title={`${displayTitle}\n${resource.url}`}
+    >
+      <div>
+        {thumbUrl && !imgError ? (
+          <div
+            className={`w-full ${
+              isVideo ? "aspect-video" : "h-24"
+            } bg-black/20 relative overflow-hidden flex items-center justify-center`}
+          >
+            <img
+              src={thumbUrl}
+              alt={displayTitle}
+              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+              onError={() => setImgError(true)}
+            />
+            {isVideo && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/30 transition-colors">
+                <div className="h-9 w-9 rounded-full bg-black/70 border border-white/30 flex items-center justify-center text-white shadow-md group-hover:scale-110 transition-transform">
+                  <Play className="h-4 w-4 fill-white ml-0.5" />
+                </div>
+              </div>
+            )}
+            {resource.duration && (
+              <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/80 text-white text-[10px] font-semibold">
+                {resource.duration}
+              </span>
+            )}
+          </div>
+        ) : isPdf || resource.kind === "datasheet" || resource.kind === "manual" ? (
+          <div className="px-2.5 py-2 bg-amber-500/8 border-b border-amber-500/15 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-300">
+              <FileDown className="h-4 w-4 shrink-0" />
+              <span className="text-[10px] font-bold uppercase tracking-wide">
+                {isPdf ? "Documento PDF descargable" : "Documentación técnica"}
+              </span>
+            </div>
+            {isPdf && <Download className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />}
+          </div>
+        ) : null}
+
+        <div className="p-2.5 space-y-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold ${cfg.badgeClass}`}>
+              {cfg.label}
+            </span>
+            {isPdf && (
+              <span className="px-1.5 py-0.5 rounded-md bg-red-500/15 text-red-600 dark:text-red-400 text-[9px] font-bold uppercase">
+                PDF
+              </span>
+            )}
+          </div>
+          <p className="text-[11.5px] font-semibold text-foreground leading-snug line-clamp-2 break-words">
+            {displayTitle}
+          </p>
+          {displayDesc && (
+            <p className="text-[10.5px] text-muted-foreground leading-snug line-clamp-2 break-words">
+              {displayDesc}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="px-2.5 py-1.5 border-t border-border/50 bg-muted/25 flex items-center justify-between gap-1.5 text-[10px] text-muted-foreground">
+        <span className="truncate font-medium">{cleanDomain}</span>
+        <span className="inline-flex items-center gap-1 font-semibold text-foreground/80 group-hover:text-violet-500 shrink-0">
+          <span>{isVideo ? "Ver video" : isPdf ? "Descargar" : "Abrir"}</span>
+          {isPdf ? <Download className="h-3 w-3" /> : <ExternalLink className="h-3 w-3" />}
+        </span>
+      </div>
+    </a>
+  );
+}
+
+function TechResourcesGallery({ resources }: { resources: TechResource[] }) {
+  if (!resources || resources.length === 0) return null;
+  return (
+    <div className="mt-3 pt-2.5 border-t border-border/60 w-full space-y-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="font-bold text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+          <Lock className="h-3 w-3 text-emerald-500 shrink-0" />
+          <span>Recursos de apoyo ({resources.length}) · Solo chat privado</span>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full">
+        {resources.map((res, idx) => (
+          <TechResourcePreviewCard key={`${res.url}-${idx}`} resource={res} />
+        ))}
+      </div>
     </div>
   );
 }

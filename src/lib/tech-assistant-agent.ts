@@ -17,6 +17,20 @@ export interface TechPersonalityConfig {
   updatedBy?: string;
 }
 
+export type TechResourceKind = "video" | "datasheet" | "manual" | "tutorial" | "foro" | "oficial";
+
+export interface TechResource {
+  title: string;
+  url: string;
+  snippet?: string;
+  kind: TechResourceKind;
+  image?: string | null;
+  domain?: string;
+  duration?: string | null;
+  channel?: string | null;
+  isPdf?: boolean;
+}
+
 export interface TechThreadMessage {
   role: "user" | "assistant";
   content: string;
@@ -24,6 +38,7 @@ export interface TechThreadMessage {
   mediaUrl?: string;
   mediaType?: string;
   fileName?: string;
+  resources?: TechResource[];
 }
 
 export interface TechAppliedAction {
@@ -365,6 +380,21 @@ export async function saveTechThread(
       ...(m.mediaUrl ? { mediaUrl: m.mediaUrl } : {}),
       ...(m.mediaType ? { mediaType: m.mediaType } : {}),
       ...(m.fileName ? { fileName: m.fileName } : {}),
+      ...(Array.isArray(m.resources) && m.resources.length > 0
+        ? {
+            resources: m.resources.slice(0, 6).map((r) => ({
+              title: String(r.title || "").slice(0, 140),
+              url: String(r.url || "").slice(0, 500),
+              ...(r.snippet ? { snippet: String(r.snippet).slice(0, 180) } : {}),
+              kind: r.kind,
+              ...(r.image ? { image: String(r.image).slice(0, 500) } : {}),
+              ...(r.domain ? { domain: String(r.domain).slice(0, 100) } : {}),
+              ...(r.duration ? { duration: String(r.duration).slice(0, 30) } : {}),
+              ...(r.channel ? { channel: String(r.channel).slice(0, 80) } : {}),
+              ...(r.isPdf ? { isPdf: true } : {}),
+            })),
+          }
+        : {}),
     }));
 
   store.byCase[caseKey || "general"] = {

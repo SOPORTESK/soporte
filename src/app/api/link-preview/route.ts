@@ -148,11 +148,27 @@ export async function GET(req: NextRequest) {
 
     const contentType = res.headers.get("content-type") || "";
     if (!contentType.includes("text/html")) {
-      return NextResponse.json({
+      const isPdf = contentType.toLowerCase().includes("pdf") || /\.pdf($|\?)/i.test(targetUrl.pathname);
+      let fileTitle = targetUrl.hostname.replace(/^www\./i, "");
+      try {
+        const rawSegment = targetUrl.pathname.split("/").filter(Boolean).pop();
+        if (rawSegment) {
+          fileTitle = decodeURIComponent(rawSegment);
+        }
+      } catch {}
+      const nonHtmlResult = {
         ok: true,
-        title: targetUrl.pathname.split("/").pop() || targetUrl.hostname,
-        domain: targetUrl.hostname,
+        title: fileTitle,
+        description: isPdf ? "Documento PDF descargable" : null,
+        domain: targetUrl.hostname.replace(/^www\./i, ""),
         url: targetUrl.toString(),
+        isPdf,
+      };
+      memoryCache.set(cacheKey, { data: nonHtmlResult, expiresAt: Date.now() + CACHE_TTL_MS });
+      return NextResponse.json(nonHtmlResult, {
+        headers: {
+          "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=43200",
+        },
       });
     }
 

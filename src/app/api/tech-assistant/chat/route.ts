@@ -26,6 +26,8 @@ import {
   getClientPriorCasesSummary,
   executeTechCaseAction,
   type TechAppliedAction,
+  type TechResource,
+  type TechResourceKind,
 } from "@/lib/tech-assistant-agent";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +40,7 @@ interface TechMessage {
   mediaUrl?: string;
   mediaType?: string;
   fileName?: string;
+  resources?: TechResource[];
 }
 
 interface FaultDomainDef {
@@ -575,6 +578,26 @@ const URL_VERIFY_CACHE_TTL_MS = 15 * 60_000;
 const URL_VERIFY_CACHE_MAX = 200;
 const urlVerifyCache = new Map<string, { ok: boolean; at: number }>();
 
+function extractYouTubeId(rawUrl: string): string | null {
+  try {
+    const u = new URL(rawUrl);
+    const host = u.hostname.replace(/^www\./i, "").toLowerCase();
+    if (host === "youtu.be") {
+      const id = u.pathname.split("/").filter(Boolean)[0];
+      return id && /^[\w-]{6,15}$/.test(id) ? id : null;
+    }
+    if (host === "youtube.com" || host === "m.youtube.com" || host === "music.youtube.com") {
+      const v = u.searchParams.get("v");
+      if (v && /^[\w-]{6,15}$/.test(v)) return v;
+      const parts = u.pathname.split("/").filter(Boolean);
+      if ((parts[0] === "shorts" || parts[0] === "embed" || parts[0] === "live" || parts[0] === "v") && parts[1]) {
+        return /^[\w-]{6,15}$/.test(parts[1]) ? parts[1] : null;
+      }
+    }
+  } catch {}
+  return null;
+}
+
 async function verifyUrlLive(rawUrl: string): Promise<boolean> {
   const cleanUrl = String(rawUrl || "").trim().replace(/[),.;:]+$/, "");
   if (!/^https?:\/\/[^/\s]+/i.test(cleanUrl)) return false;
@@ -586,40 +609,51 @@ async function verifyUrlLive(rawUrl: string): Promise<boolean> {
 
   let ok = false;
   try {
-    const res = await fetch(cleanUrl, {
-      method: "GET",
-      redirect: "follow",
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
-      },
-      signal: AbortSignal.timeout(4000),
-    });
+    const ytId = extractYouTubeId(cleanUrl);
+    if (ytId) {
+      const watchUrl = `https://www.youtube.com/watch?v=${ytId}`;
+      const oembedRes = await fetch(
+        `https://www.youtube.com/oembed?url=${encodeURIComponent(watchUrl)}&format=json`,
+        { signal: AbortSignal.timeout(3500) }
+      );
+      ok = oembedRes.ok;
+      await oembedRes.body?.cancel().catch(() => {});
+    } else {
+      const res = await fetch(cleanUrl, {
+        method: "GET",
+        redirect: "follow",
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+          "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+        },
+        signal: AbortSignal.timeout(4000),
+      });
 
-    if (res.status >= 200 && res.status < 400) {
-      const ct = (res.headers.get("content-type") || "").toLowerCase();
-      if (ct.includes("text/html")) {
-        const reader = res.body?.getReader();
-        let snippet = "";
-        if (reader) {
-          const dec = new TextDecoder();
-          while (snippet.length < 4096) {
-            const { value, done } = await reader.read();
-            if (done || !value) break;
-            snippet += dec.decode(value, { stream: true });
+      if (res.status >= 200 && res.status < 400) {
+        const ct = (res.headers.get("content-type") || "").toLowerCase();
+        if (ct.includes("text/html")) {
+          const reader = res.body?.getReader();
+          let snippet = "";
+          if (reader) {
+            const dec = new TextDecoder();
+            while (snippet.length < 4096) {
+              const { value, done } = await reader.read();
+              if (done || !value) break;
+              snippet += dec.decode(value, { stream: true });
+            }
+            await reader.cancel().catch(() => {});
           }
-          await reader.cancel().catch(() => {});
+          const titleMatch = snippet.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+          const title = titleMatch ? titleMatch[1] : "";
+          ok = !/(?:404|page\s+not\s+found|not\s+found|p[aá]gina\s+no\s+encontrada|error\s+404)/i.test(title);
+        } else {
+          await res.body?.cancel().catch(() => {});
+          ok = true;
         }
-        const titleMatch = snippet.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-        const title = titleMatch ? titleMatch[1] : "";
-        ok = !/(?:404|page\s+not\s+found|not\s+found|p[aá]gina\s+no\s+encontrada|error\s+404)/i.test(title);
       } else {
         await res.body?.cancel().catch(() => {});
-        ok = true;
       }
-    } else {
-      await res.body?.cancel().catch(() => {});
     }
   } catch {
     ok = false;
@@ -1137,7 +1171,8 @@ export async function POST(req: NextRequest) {
       !executeAction &&
       (!message || typeof message !== "string" || !message.trim()) &&
       (!mediaUrl || typeof mediaUrl !== "string") &&
-      action !== "draft_client_reply"
+      action !== "draft_client_reply" &&
+      action !== "find_resources"
     ) {
       return NextResponse.json({ error: "Mensaje o adjunto requerido" }, { status: 400 });
     }
@@ -1519,17 +1554,25 @@ export async function POST(req: NextRequest) {
       (typeof message === "string" &&
         message.includes("Instrucciones de atención al cliente") &&
         message.includes("Redacte la respuesta para el cliente"));
+    const isFindResourcesAction = action === "find_resources";
 
     const displayMsg =
       displayMessage ||
-      (isDraftAction ? "Redactar propuesta de respuesta para el cliente basada en el caso abierto" : (message || "").trim());
+      (isDraftAction
+        ? "Redactar propuesta de respuesta para el cliente basada en el caso abierto"
+        : isFindResourcesAction
+          ? "Buscar tutoriales, manuales, fichas técnicas, videos y foros para este caso"
+          : (message || "").trim());
 
     const now = new Date().toISOString();
+    const effectiveAiMsg = isFindResourcesAction
+      ? "Busque tutoriales, manuales oficiales, fichas técnicas PDF, videos de YouTube y foros técnicos útiles para este caso abierto."
+      : displayMsg;
     const aiUserMsgContent = techMediaAnalysis
-      ? `${displayMsg}\n\n[ANÁLISIS DEL ARCHIVO ADJUNTO DEL TÉCNICO (${fileName || mediaType || "archivo"})]:\n${techMediaAnalysis}`.trim()
+      ? `${effectiveAiMsg}\n\n[ANÁLISIS DEL ARCHIVO ADJUNTO DEL TÉCNICO (${fileName || mediaType || "archivo"})]:\n${techMediaAnalysis}`.trim()
       : mediaUrl
-        ? `${displayMsg}\n\n[AVISO DEL SISTEMA: El técnico SÍ adjuntó "${fileName || mediaType || "imagen"}", pero el motor de visión falló temporalmente al leerla. NO afirmes que no hay captura ni inventes datos; informa honestamente el fallo de lectura visual y pide reintentar o describir brevemente la captura.]`.trim()
-        : displayMsg;
+        ? `${effectiveAiMsg}\n\n[AVISO DEL SISTEMA: El técnico SÍ adjuntó "${fileName || mediaType || "imagen"}", pero el motor de visión falló temporalmente al leerla. NO afirmes que no hay captura ni inventes datos; informa honestamente el fallo de lectura visual y pide reintentar o describir brevemente la captura.]`.trim()
+        : effectiveAiMsg;
 
     const userMsg: TechMessage = {
       role: "user",
@@ -1547,6 +1590,7 @@ export async function POST(req: NextRequest) {
 
     // ── 5. Motor de Relevancia por Dominio Técnico de Avería (sin falsos positivos) ──
     const isGenericDiagnosticPrompt =
+      isFindResourcesAction ||
       /diagnostique y resuelva|identifique el equipo|procedimiento técnico|analice este caso abierto/i.test(message || "");
     const userQueryOnly: string = isGenericDiagnosticPrompt ? "" : String(message || "");
 
@@ -1896,9 +1940,10 @@ export async function POST(req: NextRequest) {
       console.warn("[tech-assistant] Error consultando índice completo de casos y manuales:", dbErr?.message);
     }
 
-    // ── 5.3. Búsqueda Web Técnica en Vivo alineada al Caso (SIEMPRE activa salvo saludo/corrección meta) ──
+    // ── 5.3. Búsqueda Web Técnica Multi-Fuente en Vivo (Videos, Fichas/Manuales PDF, Tutoriales y Foros — solo chat privado) ──
     let webContext = "";
-    let retrievedWebResults: { title: string; url: string; snippet: string; kind: "oficial" | "foro" | "manual" }[] = [];
+    let retrievedWebResults: { title: string; url: string; snippet: string; kind: TechResourceKind }[] = [];
+    let verifiedResources: TechResource[] = [];
     const memoryToSave = !isDraftAction && typeof message === "string" ? detectMemorySaveIntent(message) : null;
     const isMetaMediaQuery =
       isDraftAction ||
@@ -1922,6 +1967,7 @@ export async function POST(req: NextRequest) {
     const cleanForTrivialCheck = userQueryOnly.replace(/[?!.,\s]+/g, "").trim();
     const isTrivialGreeting =
       !isDraftAction &&
+      !isFindResourcesAction &&
       !mediaUrl &&
       cleanForTrivialCheck.length > 0 &&
       cleanForTrivialCheck.length <= 12 &&
@@ -1974,20 +2020,40 @@ export async function POST(req: NextRequest) {
         const queryForWeb = baseQuery.length >= 3 ? baseQuery : `${primaryBrand} ${hardwareModelForWeb} manual configuracion`.trim();
 
         if (queryForWeb.length >= 3) {
+          const datasheetManualQuery =
+            primaryBrand || hardwareModelForWeb
+              ? `${primaryBrand} ${hardwareModelForWeb} datasheet OR manual pdf`.replace(/\s+/g, " ").trim()
+              : "";
           const officialQuery = isConsultationCase
             ? `${queryForWeb} datasheet especificaciones`
-            : `${queryForWeb} manual configuracion`;
+            : `${queryForWeb} tutorial guia configuracion`;
           const forumQuery = isConsultationCase
             ? `${queryForWeb} ISAPI SDK`
             : `${queryForWeb} solucion`;
-          console.log(`[tech-assistant] 🌐 Web oficial: "${officialQuery}" | Foros: "${forumQuery}"`);
+          const videoSubject = (topFaultTerms || tokenHint || subject || "configuracion tutorial")
+            .split(/\s+/)
+            .slice(0, 5)
+            .join(" ");
+          const videoQuery = `${primaryBrand} ${hardwareModelForWeb} ${videoSubject} tutorial`.replace(/\s+/g, " ").trim();
 
-          const [officialRes, forumRes] = await Promise.race([
+          console.log(
+            `[tech-assistant] 🌐 Web=${officialQuery} | PDF=${datasheetManualQuery || "none"} | Foros=${isDraftAction ? "skip" : forumQuery} | Videos=${isDraftAction ? "skip" : videoQuery}`
+          );
+
+          const [datasheetRes, officialRes, forumRes, videoRes] = await Promise.race([
             Promise.all([
+              datasheetManualQuery
+                ? searchTechnicalWeb(datasheetManualQuery, 3, false, primaryBrand, hardwareModelForWeb, activeFaultDomain)
+                : Promise.resolve([]),
               searchTechnicalWeb(officialQuery, 4, false, primaryBrand, hardwareModelForWeb, activeFaultDomain),
-              searchTechnicalWeb(forumQuery, 4, true, primaryBrand, hardwareModelForWeb, activeFaultDomain),
+              !isDraftAction
+                ? searchTechnicalWeb(forumQuery, 3, true, primaryBrand, hardwareModelForWeb, activeFaultDomain)
+                : Promise.resolve([]),
+              !isDraftAction
+                ? searchTechnicalVideos(videoQuery, 3, primaryBrand, hardwareModelForWeb)
+                : Promise.resolve([]),
             ]),
-            new Promise<[any[], any[]]>((resolve) => setTimeout(() => resolve([[], []]), 5500)),
+            new Promise<[any[], any[], any[], any[]]>((resolve) => setTimeout(() => resolve([[], [], [], []]), 6000)),
           ]);
 
           const isOffTopicNvrForAnalog = (r: { title: string; url: string; snippet: string }): boolean => {
@@ -1999,25 +2065,125 @@ export async function POST(req: NextRequest) {
             );
           };
 
-          const seen = new Set<string>();
-          const merged: typeof retrievedWebResults = [];
-          const pushRes = (r: { title: string; url: string; snippet: string }) => {
-            if (isOffTopicNvrForAnalog(r)) return;
-            const key = r.url.replace(/[#?].*$/, "").toLowerCase();
-            if (seen.has(key)) return;
-            seen.add(key);
-            merged.push({ ...r, kind: classifyWebSource(r.url) });
+          type CandidateWeb = {
+            title: string;
+            url: string;
+            snippet: string;
+            kind: TechResourceKind;
+            image?: string | null;
+            duration?: string | null;
+            channel?: string | null;
           };
-          officialRes.slice(0, 3).forEach(pushRes);
-          forumRes.filter((r) => classifyWebSource(r.url) === "foro").slice(0, 2).forEach(pushRes);
-          [...officialRes, ...forumRes].forEach((r) => merged.length < 4 && pushRes(r));
 
-          const candidateWebResults = merged.slice(0, 5);
+          const seen = new Set<string>();
+          const merged: CandidateWeb[] = [];
+          const pushCandidate = (
+            r: { title: string; url: string; snippet: string; image?: string | null; duration?: string | null; channel?: string | null },
+            forcedKind?: TechResourceKind
+          ): boolean => {
+            if (!r?.url || isOffTopicNvrForAnalog(r)) return false;
+            const key = r.url.replace(/[#?].*$/, "").toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            const kind = forcedKind || classifyWebSource(r.url, r.title, r.snippet);
+            merged.push({
+              title: r.title,
+              url: r.url,
+              snippet: r.snippet,
+              kind,
+              image: r.image || null,
+              duration: r.duration || null,
+              channel: r.channel || null,
+            });
+            return true;
+          };
+
+          // 1. Priorizar PDFs de fichas técnicas y manuales descargables (máx 2)
+          const pdfAndManualAll = [...datasheetRes, ...officialRes].sort((a, b) => {
+            const aPdf = /\.pdf($|\?)/i.test(a.url) ? 1 : 0;
+            const bPdf = /\.pdf($|\?)/i.test(b.url) ? 1 : 0;
+            return bPdf - aPdf;
+          });
+          let docsAdded = 0;
+          for (const r of pdfAndManualAll) {
+            if (docsAdded >= 2) break;
+            const k = classifyWebSource(r.url, r.title, r.snippet);
+            if (k === "datasheet" || k === "manual" || /\.pdf($|\?)/i.test(r.url)) {
+              if (pushCandidate(r, k)) docsAdded++;
+            }
+          }
+
+          // 2. Videos tutoriales verificados (máx 2, solo chat privado)
+          let videosAdded = 0;
+          for (const vr of videoRes) {
+            if (videosAdded >= 2) break;
+            if (pushCandidate(vr, "video")) videosAdded++;
+          }
+
+          // 3. Tutoriales y foros técnicos (máx 2 inicialmente)
+          let guidesAndForumsAdded = 0;
+          for (const r of forumRes) {
+            if (guidesAndForumsAdded >= 2) break;
+            if (classifyWebSource(r.url, r.title, r.snippet) === "foro") {
+              if (pushCandidate(r, "foro")) guidesAndForumsAdded++;
+            }
+          }
+          for (const r of officialRes) {
+            if (guidesAndForumsAdded >= 2 && merged.length >= 6) break;
+            if (pushCandidate(r)) guidesAndForumsAdded++;
+          }
+
+          // 4. Completar hasta 7 candidatos totales para verificación en vivo
+          for (const r of [...pdfAndManualAll, ...forumRes, ...videoRes]) {
+            if (merged.length >= 7) break;
+            pushCandidate(r);
+          }
+
+          const candidateWebResults = merged.slice(0, 7);
           const verifiedWebFlags = await Promise.all(candidateWebResults.map((r) => verifyUrlLive(r.url)));
-          retrievedWebResults = candidateWebResults.filter((_, idx) => verifiedWebFlags[idx]).slice(0, 4);
+          const liveCandidates = candidateWebResults.filter((_, idx) => verifiedWebFlags[idx]).slice(0, 6);
+
+          retrievedWebResults = liveCandidates.map((r) => ({
+            title: r.title,
+            url: r.url,
+            snippet: r.snippet,
+            kind: r.kind,
+          }));
+
+          if (!isDraftAction) {
+            verifiedResources = liveCandidates.map((r) => {
+              let domain = "";
+              try {
+                domain = new URL(r.url).hostname.replace(/^www\./i, "");
+              } catch {}
+              const ytId = extractYouTubeId(r.url);
+              const fallbackThumb = ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : null;
+              return {
+                title: r.title,
+                url: r.url,
+                snippet: r.snippet,
+                kind: r.kind,
+                image: r.image || fallbackThumb || null,
+                domain,
+                duration: r.duration || null,
+                channel: r.channel || null,
+                isPdf: /\.pdf($|\?)/i.test(r.url),
+              };
+            });
+          }
+
+          const kindLabelMap: Record<TechResourceKind, string> = {
+            video: "Video tutorial",
+            datasheet: "Ficha técnica",
+            manual: "Manual descargable",
+            tutorial: "Tutorial / Guía",
+            foro: "Foro técnico",
+            oficial: "Sitio oficial",
+          };
+
           if (retrievedWebResults.length > 0) {
             webContext = retrievedWebResults
-              .map((r, i) => `[W${i + 1}] (${r.kind === "foro" ? "Foro técnico" : r.kind === "manual" ? "Manual" : "Sitio oficial"}) ${r.title} (${r.url})\n${r.snippet}`)
+              .map((r, i) => `[W${i + 1}] (${kindLabelMap[r.kind]}) ${r.title} (${r.url})\n${r.snippet}`)
               .join("\n\n");
           }
         }
@@ -2142,8 +2308,13 @@ export async function POST(req: NextRequest) {
       .filter(Boolean)
       .join("\n");
 
-    const rule3Section =
-      isGenericDiagnosticPrompt && isConsultationCase
+    const rule3Section = isFindResourcesAction
+      ? `3. RECURSOS DE APOYO EN VIVO PARA EL TÉCNICO (SOLO ESTE CHAT PRIVADO):
+   El técnico solicitó recopilar tutoriales, manuales, fichas técnicas descargables, videos y foros relevantes para este caso.
+   Las tarjetas interactivas con vista previa de los enlaces verificados se mostrarán automáticamente debajo de tu mensaje en este chat privado.
+   - NO pegues listas largas de URLs crudas ni inventes enlaces.
+   - Escribe un resumen breve de 3 a 5 líneas con viñetas ("• ") explicando para qué sirve cada recurso encontrado (ej. qué video muestra la configuración, cuál enlace es ficha técnica/manual PDF descargable, qué hilo de foro aporta solución) y cómo aplicarlo al equipo del caso (${equipoLinea}).`
+      : isGenericDiagnosticPrompt && isConsultationCase
         ? `3. ESTRUCTURA DE CONSULTA TÉCNICA (OBLIGATORIA cuando el cliente pregunta compatibilidad, integración o funciones antes de comprar/implementar):
    Este caso NO es una avería de hardware; el cliente está consultando viabilidad técnica / integración / especificaciones. Prohibido inventar "Falla y Causa Raíz" o "Solución Comprobada en Taller". Responde de forma concisa y directa en estas secciones (usa el título exacto seguido de dos puntos):
    Respuesta Directa (Sí / No / Condiciones):
@@ -2228,6 +2399,7 @@ Lee la conversación completa en <<<CONVERSACION_CASO_ACTUAL>>> desde el inicio 
 0.5 CERO ENLACES INVENTADOS NI INFORMACIÓN SIN VERIFICAR:
 - Prohibido inventar direcciones web (URLs) de memoria. Solo puedes incluir un enlace si aparece textualmente en el contexto verificado arriba (por ejemplo [W#] o en estas reglas). Si no tienes un enlace exacto verificado, NO pongas ninguna URL.
 - Prohibido adivinar especificaciones, puertos, nombres de menús o procedimientos: si algún dato no está confirmado con 100% de certeza, dilo con honestidad al técnico en lugar de rellenar o suponer.
+- En este chat privado del técnico, los tutoriales, fichas técnicas PDF, manuales, videos de YouTube y foros verificados en [W#] se muestran automáticamente debajo como tarjetas con vista previa: cítalos o descríbelos brevemente sin duplicar largas listas de URLs en el texto.
 
 1. MÁXIMA PRIORIDAD A RESOLVER LA AVERÍA: El técnico te consulta para encontrar la SOLUCIÓN EXACTA. Fundamenta tu respuesta en la conversación abierta real, las evidencias adjuntas, las soluciones comprobadas en casos previos del mismo cliente o taller cuando realmente apliquen, y procedimientos técnicos exactos de la marca.
 2. FOCO Y DESTINATARIO: Tu respuesta va dirigida ÚNICA Y EXCLUSIVAMENTE al caso y cliente abierto en pantalla. Nunca menciones nombres de clientes pasados.
@@ -2281,7 +2453,7 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
           content: m.content,
         })),
         temperature: 0.2,
-        maxTokens: 3072,
+        maxTokens: isFindResourcesAction ? 900 : 3072,
         timeoutMs: 25_000,
       });
 
@@ -2398,9 +2570,14 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
       }
     });
 
-    // 3. Fuentes Web Oficiales en Vivo (correspondientes a la marca)
+    // 3. Fuentes Web Oficiales en Vivo (solo las que no están ya en verifiedResources como tarjetas visuales)
+    const visualUrlSet = new Set(
+      verifiedResources.map((vr) => vr.url.replace(/[#?].*$/, "").toLowerCase())
+    );
     let wOutIdx = 1;
     retrievedWebResults.forEach((wr, idx) => {
+      const normUrl = wr.url.replace(/[#?].*$/, "").toLowerCase();
+      if (!isDraftAction && visualUrlSet.has(normUrl)) return;
       const matchBrand = !primaryBrand || wr.title.toLowerCase().includes(primaryBrand) || wr.url.toLowerCase().includes(primaryBrand);
       if ((aiCitedW.has(idx) || (allowAutoFallbackSources && idx < 2)) && matchBrand) {
         const safeTitle = wr.title.replace(/[()]/g, "").replace(/\s+/g, " ").trim();
@@ -2424,6 +2601,7 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
       role: "assistant",
       content: assistantDisplayContent,
       time: new Date().toISOString(),
+      ...(!isDraftAction && verifiedResources.length > 0 ? { resources: verifiedResources } : {}),
     };
     const finalMessages = [...updatedMessages, assistantMsg];
 
@@ -2434,6 +2612,7 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
       response: responseText,
       clientDraft: clientDraftText,
       messages: finalMessages,
+      resources: !isDraftAction ? verifiedResources : [],
       case_id: validCaseId,
       appliedActions,
     });
@@ -2455,31 +2634,63 @@ function cleanAiFormatting(raw: string): string {
     .trim();
 }
 
-function classifyWebSource(url: string): "oficial" | "foro" | "manual" {
+function classifyWebSource(url: string, title = "", snippet = ""): TechResourceKind {
   const u = (url || "").toLowerCase();
+  const text = `${title} ${snippet}`.toLowerCase();
+  if (
+    u.includes("youtube.com") ||
+    u.includes("youtu.be") ||
+    u.includes("vimeo.com") ||
+    u.includes("dailymotion.com")
+  ) {
+    return "video";
+  }
+  if (
+    u.includes("datasheet") ||
+    text.includes("datasheet") ||
+    text.includes("ficha técnica") ||
+    text.includes("ficha tecnica") ||
+    text.includes("spec sheet") ||
+    (/\.pdf($|\?)/i.test(u) && /\b(?:spec|datasheet|ficha|specs)\b/.test(`${u} ${text}`))
+  ) {
+    return "datasheet";
+  }
   if (
     u.includes("manualslib") ||
+    u.includes("manualsdir") ||
+    u.includes("manualzz") ||
     u.includes("user-manual") ||
-    u.includes(".pdf") ||
-    u.includes("/support/how-to/") ||
-    u.includes("/guide") ||
+    u.includes("user-guide") ||
     u.includes("quick-start") ||
-    u.includes("datasheet") ||
-    u.includes("manual")
+    u.includes("manual") ||
+    /\.pdf($|\?)/i.test(u)
   ) {
     return "manual";
   }
   if (
     u.includes("forum") ||
     u.includes("foro") ||
-    u.includes("reddit") ||
+    u.includes("reddit.com/r/") ||
     u.includes("ipcamtalk") ||
     u.includes("cctvforum") ||
-    u.includes("youtube") ||
     u.includes("community") ||
     u.includes("comunidad")
   ) {
     return "foro";
+  }
+  if (
+    u.includes("/support/how-to/") ||
+    u.includes("how-to") ||
+    u.includes("tutorial") ||
+    u.includes("dahuawiki") ||
+    u.includes("/guide") ||
+    u.includes("knowledge") ||
+    u.includes("syscom.mx") ||
+    u.includes("epcom.net") ||
+    text.includes("tutorial") ||
+    text.includes("paso a paso")
+  ) {
+    return "tutorial";
   }
   return "oficial";
 }
@@ -2503,17 +2714,24 @@ function isStrictlyRelevant(
   url: string,
   snippet: string,
   brandHint = "",
-  modelHint = ""
+  modelHint = "",
+  allowVideos = false
 ): boolean {
   const full = `${title} ${url} ${snippet}`.toLowerCase();
   const urlLow = url.toLowerCase();
+
+  const isVideoHost =
+    urlLow.includes("youtube.com") ||
+    urlLow.includes("youtu.be") ||
+    urlLow.includes("vimeo.com");
+  if (!allowVideos && isVideoHost) return false;
 
   // Permitir subreddits especializados en CCTV, redes y control de acceso antes de bloquear el resto de Reddit
   const isTechSubreddit =
     /reddit\.com\/r\/(?:hikvision|homedefense|securitycameras|cctv|ubiquiti|mikrotik|accesscontrol)\b/i.test(urlLow);
 
   const JUNK_DOMAINS = [
-    "youtube.com", "youtu.be", "facebook.com", "instagram.com", "tiktok.com",
+    "facebook.com", "instagram.com", "tiktok.com",
     "twitter.com", "x.com", "lowyat.net", "answers.microsoft.com",
     "support.google.com", "wikipedia.org", "xvideos", "pornhub", "twitch.tv",
     "spotify.com", "netflix.com", "github.io", "thestempedia.com", "unimart.com"
@@ -2558,8 +2776,12 @@ function isStrictlyRelevant(
   }
 
   const m = (modelHint || "").toLowerCase().trim();
-  const hasBrand = b && full.includes(b);
-  const hasModel = m && full.includes(m);
+  const hasBrand = Boolean(b && full.includes(b));
+  const hasModel = Boolean(m && full.includes(m));
+  if (isVideoHost && (b || m)) {
+    return hasBrand || hasModel;
+  }
+
   const isKnownTechnicalDomain = [
     "hikvision.com", "assets.hikvision.com", "hikgrid.com", "hilook.com", "ezviz.com", "support.ezviz.com",
     "dahuasecurity.com", "dahuawiki.com", "zkteco.com", "tp-link.com", "uniview.com", "paradox.com",
@@ -2658,16 +2880,138 @@ function decodeYahooUrl(rawUrl: string): string {
   return rawUrl;
 }
 
+const videoSearchCache = new Map<
+  string,
+  { at: number; results: { title: string; url: string; snippet: string; image?: string | null; duration?: string | null; channel?: string | null }[] }
+>();
+
+async function searchTechnicalVideos(
+  query: string,
+  limit = 3,
+  brandHint = "",
+  modelHint = ""
+): Promise<{ title: string; url: string; snippet: string; image?: string | null; duration?: string | null; channel?: string | null }[]> {
+  const cleanQ = String(query || "").trim();
+  if (cleanQ.length < 3) return [];
+  const cacheKey = `vid|${cleanQ.toLowerCase()}|${brandHint}|${modelHint}|${limit}`;
+  const cached = videoSearchCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < WEB_SEARCH_CACHE_TTL_MS) {
+    return cached.results;
+  }
+
+  const results: { title: string; url: string; snippet: string; image?: string | null; duration?: string | null; channel?: string | null }[] = [];
+  const seenUrls = new Set<string>();
+
+  try {
+    const provs = await getProviderConfigs();
+    const serperCfg = provs.get("serper");
+    if (serperCfg && serperCfg.keys.length > 0) {
+      const sBase = (serperCfg.baseUrl || "https://google.serper.dev").replace(/\/+$/, "");
+      for (let ki = 0; ki < serperCfg.keys.length; ki++) {
+        const ck = `serper#${ki}/videos`;
+        if (isModelCooledDown(ck)) continue;
+        try {
+          const res = await fetch(`${sBase}/videos`, {
+            method: "POST",
+            headers: {
+              "X-API-KEY": serperCfg.keys[ki],
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              q: cleanQ,
+              gl: "cr",
+              hl: "es",
+              num: Math.max(limit + 3, 6),
+            }),
+            signal: AbortSignal.timeout(4500),
+          });
+          if (res.ok) {
+            markModelSuccess(ck);
+            const data = await res.json().catch(() => ({} as any));
+            const videos = Array.isArray(data?.videos) ? data.videos : [];
+            for (const item of videos) {
+              if (results.length >= limit) break;
+              const rawUrl = String(item?.link || "").trim();
+              if (/google\.[^/]+\/goto/i.test(rawUrl)) continue;
+              const isDirectVideoHost = /(?:youtube\.com|youtu\.be|vimeo\.com|dailymotion\.com)/i.test(rawUrl);
+              if (!isDirectVideoHost) continue;
+              const rawTitle = String(item?.title || "").replace(/<[^>]+>/g, "").trim();
+              const rawSnippet = String(item?.snippet || "").replace(/<[^>]+>/g, "").trim();
+              if (!rawUrl || !rawTitle) continue;
+              if (!isStrictlyRelevant(rawTitle, rawUrl, rawSnippet, brandHint, modelHint, true)) continue;
+              const key = rawUrl.replace(/#.*$/, "").toLowerCase();
+              if (seenUrls.has(key)) continue;
+              seenUrls.add(key);
+              const ytId = extractYouTubeId(rawUrl);
+              const thumb = (ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : null) || String(item?.imageUrl || item?.thumbnail || "") || null;
+              results.push({
+                title: rawTitle,
+                url: rawUrl,
+                snippet: rawSnippet || `Video tutorial técnico (${String(item?.channel || "YouTube")})`,
+                image: thumb,
+                duration: item?.duration ? String(item.duration) : null,
+                channel: item?.channel ? String(item.channel) : null,
+              });
+            }
+            if (results.length >= limit) break;
+          } else {
+            markModelFailure(ck, res.status);
+          }
+        } catch {
+          markModelFailure(ck);
+        }
+      }
+    }
+  } catch (err: any) {
+    console.warn("[tech-assistant] Error buscando videos técnicos:", err?.message);
+  }
+
+  if (results.length < limit) {
+    const webFallback = await searchTechnicalWeb(
+      `site:youtube.com ${cleanQ}`,
+      limit,
+      false,
+      brandHint,
+      modelHint,
+      "",
+      true
+    );
+    for (const r of webFallback) {
+      if (results.length >= limit) break;
+      const key = r.url.replace(/#.*$/, "").toLowerCase();
+      if (seenUrls.has(key)) continue;
+      seenUrls.add(key);
+      const ytId = extractYouTubeId(r.url);
+      results.push({
+        title: r.title,
+        url: r.url,
+        snippet: r.snippet,
+        image: ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : null,
+        duration: null,
+        channel: null,
+      });
+    }
+  }
+
+  if (videoSearchCache.size >= WEB_SEARCH_CACHE_MAX) {
+    const oldest = videoSearchCache.keys().next().value;
+    if (oldest) videoSearchCache.delete(oldest);
+  }
+  videoSearchCache.set(cacheKey, { at: Date.now(), results });
+  return results;
+}
+
 async function searchTechnicalWeb(
   query: string,
   limit = 3,
   isForum = false,
   brandHint = "",
   modelHint = "",
-  domainId = ""
+  domainId = "",
+  allowVideos = false
 ): Promise<{ title: string; url: string; snippet: string }[]> {
   const finalQuery = isForum ? `${query} foro comunidad` : query;
-  const cacheKey = `${finalQuery.toLowerCase()}|${brandHint}|${modelHint}|${limit}`;
+  const cacheKey = `${finalQuery.toLowerCase()}|${brandHint}|${modelHint}|${allowVideos ? 1 : 0}|${limit}`;
   const cached = webSearchCache.get(cacheKey);
   if (cached && Date.now() - cached.at < WEB_SEARCH_CACHE_TTL_MS) {
     return cached.results;
@@ -2682,7 +3026,7 @@ async function searchTechnicalWeb(
     const cleanTitle = title.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/[()]/g, "").trim();
     if (cleanTitle.length < 4) return;
 
-    if (!isStrictlyRelevant(cleanTitle, url, snippet, brandHint, modelHint)) {
+    if (!isStrictlyRelevant(cleanTitle, url, snippet, brandHint, modelHint, allowVideos)) {
       return;
     }
 
