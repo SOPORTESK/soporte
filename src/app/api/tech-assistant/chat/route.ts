@@ -571,6 +571,109 @@ function normalizeOcrModelTypos(text: string): string {
   );
 }
 
+const URL_VERIFY_CACHE_TTL_MS = 15 * 60_000;
+const URL_VERIFY_CACHE_MAX = 200;
+const urlVerifyCache = new Map<string, { ok: boolean; at: number }>();
+
+async function verifyUrlLive(rawUrl: string): Promise<boolean> {
+  const cleanUrl = String(rawUrl || "").trim().replace(/[),.;:]+$/, "");
+  if (!/^https?:\/\/[^/\s]+/i.test(cleanUrl)) return false;
+
+  const cached = urlVerifyCache.get(cleanUrl);
+  if (cached && Date.now() - cached.at < URL_VERIFY_CACHE_TTL_MS) {
+    return cached.ok;
+  }
+
+  let ok = false;
+  try {
+    const res = await fetch(cleanUrl, {
+      method: "GET",
+      redirect: "follow",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+      },
+      signal: AbortSignal.timeout(4000),
+    });
+
+    if (res.status >= 200 && res.status < 400) {
+      const ct = (res.headers.get("content-type") || "").toLowerCase();
+      if (ct.includes("text/html")) {
+        const reader = res.body?.getReader();
+        let snippet = "";
+        if (reader) {
+          const dec = new TextDecoder();
+          while (snippet.length < 4096) {
+            const { value, done } = await reader.read();
+            if (done || !value) break;
+            snippet += dec.decode(value, { stream: true });
+          }
+          await reader.cancel().catch(() => {});
+        }
+        const titleMatch = snippet.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+        const title = titleMatch ? titleMatch[1] : "";
+        ok = !/(?:404|page\s+not\s+found|not\s+found|p[aá]gina\s+no\s+encontrada|error\s+404)/i.test(title);
+      } else {
+        await res.body?.cancel().catch(() => {});
+        ok = true;
+      }
+    } else {
+      await res.body?.cancel().catch(() => {});
+    }
+  } catch {
+    ok = false;
+  }
+
+  if (urlVerifyCache.size >= URL_VERIFY_CACHE_MAX) {
+    const firstKey = urlVerifyCache.keys().next().value;
+    if (firstKey) urlVerifyCache.delete(firstKey);
+  }
+  urlVerifyCache.set(cleanUrl, { ok, at: Date.now() });
+  return ok;
+}
+
+async function verifyAndCleanResponseUrls(text: string): Promise<string> {
+  if (!text) return text;
+  const rawMatches = text.match(/https?:\/\/[^\s<>"')\]]+/gi) || [];
+  if (rawMatches.length === 0) return text;
+
+  const uniqueUrls = [...new Set(rawMatches.map((u) => u.replace(/[.,;:!?)]+$/, "")))];
+  const checks = await Promise.all(
+    uniqueUrls.map(async (u) => ({ url: u, ok: await verifyUrlLive(u) }))
+  );
+
+  const failed = checks.filter((c) => !c.ok).map((c) => c.url);
+  if (failed.length === 0) return text;
+
+  let result = text;
+  const needsHikTpp = failed.some((u) =>
+    /developer\.hikvision\.com|hikvision\.com\/.*(?:developer|isapi|sdk)/i.test(u)
+  );
+  const hikTppLive = needsHikTpp ? await verifyUrlLive("https://tpp.hikvision.com/") : false;
+
+  for (const deadUrl of failed) {
+    console.warn(`[tech-assistant] ❌ Enlace no funcional/inventado bloqueado: ${deadUrl}`);
+    const escaped = deadUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const isHikDev = /developer\.hikvision\.com|hikvision\.com\/.*(?:developer|isapi|sdk)/i.test(deadUrl);
+    if (isHikDev && hikTppLive) {
+      result = result.replace(new RegExp(`${escaped}/?`, "gi"), "https://tpp.hikvision.com/");
+    } else {
+      result = result
+        .replace(new RegExp(`\\(\\s*${escaped}/?\\s*\\)`, "gi"), "")
+        .replace(new RegExp(`en\\s+la\\s+siguiente\\s+direcci[oó]n:\\s*${escaped}/?`, "gi"), "en el portal oficial del fabricante")
+        .replace(new RegExp(`(?:en|desde|visite|ver):?\\s*${escaped}/?`, "gi"), "")
+        .replace(new RegExp(`${escaped}/?`, "gi"), "");
+    }
+  }
+
+  return result
+    .replace(/\(\s*\)/g, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function extractValidHardwareModels(text: string): string[] {
   if (!text) return [];
   const cleanText = normalizeOcrModelTypos(text)
@@ -1909,7 +2012,9 @@ export async function POST(req: NextRequest) {
           forumRes.filter((r) => classifyWebSource(r.url) === "foro").slice(0, 2).forEach(pushRes);
           [...officialRes, ...forumRes].forEach((r) => merged.length < 4 && pushRes(r));
 
-          retrievedWebResults = merged.slice(0, 4);
+          const candidateWebResults = merged.slice(0, 5);
+          const verifiedWebFlags = await Promise.all(candidateWebResults.map((r) => verifyUrlLive(r.url)));
+          retrievedWebResults = candidateWebResults.filter((_, idx) => verifiedWebFlags[idx]).slice(0, 4);
           if (retrievedWebResults.length > 0) {
             webContext = retrievedWebResults
               .map((r, i) => `[W${i + 1}] (${r.kind === "foro" ? "Foro técnico" : r.kind === "manual" ? "Manual" : "Sitio oficial"}) ${r.title} (${r.url})\n${r.snippet}`)
@@ -2117,7 +2222,12 @@ Lee la conversación completa en <<<CONVERSACION_CASO_ACTUAL>>> desde el inicio 
 0.4 INTEGRACIÓN API / SDK / RECONOCIMIENTO FACIAL / BASE DE DATOS EXTERNA:
 - Las cámaras y terminales Hikvision NO se conectan directamente por sí solas a una base de datos SQL externa. Siempre requieren un servicio puente / middleware desarrollado por el cliente que consuma los protocolos oficiales de Hikvision: ISAPI (API REST sobre HTTP/HTTPS + notificaciones HTTP Listening / AlertStream en XML/JSON), Device Network SDK (librerías C/C++/C#/Python DLL/SO) o ISUP (registro hacia plataforma en la nube/WAN).
 - Prohibido inventar nombres de SDK inexistentes como "Face SDK"; usa estrictamente los nombres oficiales: ISAPI, Device Network SDK e ISUP.
+- Portales oficiales reales y verificados de Hikvision para integración/descargas: https://tpp.hikvision.com/ (Hikvision Technology Partner Portal — documentación ISAPI, Device Network SDK e ISUP) y https://www.hikvision.com/es-la/support/download/ (descargas oficiales). JAMÁS menciones ni escribas https://developer.hikvision.com (ese dominio NO existe).
 - Distingue con precisión técnica: las cámaras IP DeepinView con comparación facial (como la iDS-2CD7186G0-IZS) sí soportan captura y comparación facial con bibliotecas de rostros internas y entregan por ISAPI o Device Network SDK el evento de coincidencia con fecha/hora e identificador de persona/rostro, pero son cámaras de videovigilancia (no llevan registro nativo de marcación entrada/salida salvo que el sistema externo distinga cámaras de entrada vs salida). Para control de asistencia puntual de entrada y salida de colaboradores con ID de empleado, aclara además que los terminales biométricos faciales Hikvision MinMoe (serie DS-K1T...) están diseñados específicamente para marcación e integración de asistencia por ISAPI/SDK o HikCentral.
+
+0.5 CERO ENLACES INVENTADOS NI INFORMACIÓN SIN VERIFICAR:
+- Prohibido inventar direcciones web (URLs) de memoria. Solo puedes incluir un enlace si aparece textualmente en el contexto verificado arriba (por ejemplo [W#] o en estas reglas). Si no tienes un enlace exacto verificado, NO pongas ninguna URL.
+- Prohibido adivinar especificaciones, puertos, nombres de menús o procedimientos: si algún dato no está confirmado con 100% de certeza, dilo con honestidad al técnico en lugar de rellenar o suponer.
 
 1. MÁXIMA PRIORIDAD A RESOLVER LA AVERÍA: El técnico te consulta para encontrar la SOLUCIÓN EXACTA. Fundamenta tu respuesta en la conversación abierta real, las evidencias adjuntas, las soluciones comprobadas en casos previos del mismo cliente o taller cuando realmente apliquen, y procedimientos técnicos exactos de la marca.
 2. FOCO Y DESTINATARIO: Tu respuesta va dirigida ÚNICA Y EXCLUSIVAMENTE al caso y cliente abierto en pantalla. Nunca menciones nombres de clientes pasados.
@@ -2154,6 +2264,7 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
 - Ve directo al grano: dale al cliente la respuesta clara a su pregunta o el procedimiento técnico exacto paso a paso de lo que debe hacer en su equipo.
 - Si le indicas pasos o pruebas al cliente, usa viñetas sencillas con punto ("• ") directas y numeradas si es secuencial, con instrucciones fáciles de seguir para alguien no técnico.
 - NUNCA uses jerga interna del taller ni menciones precedentes de otros clientes, manuales internos ni códigos de caso de Sekunet.
+- PROHIBIDO incluir enlaces (https://...) inventados o no verificados en el mensaje al cliente. Si incluyes un enlace oficial, debe ser únicamente uno verificado del contexto (ej. https://tpp.hikvision.com/ o https://www.hikvision.com/es-la/support/download/); si no tienes enlace verificado, explica el paso sin poner URLs.
 - CERO ASTERISCOS: Redacte en texto plano limpio sin asteriscos, sin encabezados con # y con viñetas decentes ("• ").
 - NO INCLUYAS la línea de fuentes consultadas en este texto, ya que este mensaje va dirigido exclusivamente al cliente final por WhatsApp.
 - DEVUELVA ÚNICAMENTE el texto que el técnico debe enviarle al cliente. No incluya introducciones como "Aquí tiene la respuesta:" ni notas dirigidas al técnico.`;
@@ -2220,6 +2331,8 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
     } else {
       responseText = responseText.replace(/^(¡?Buenos\s+d[ií]as|¡?Buenas\s+tardes)\b/i, "Buenas noches");
     }
+
+    responseText = await verifyAndCleanResponseUrls(responseText);
 
     // Ejecutar acción estructurada si el técnico la solicitó y el agente la emitió
     const actionMatch = responseText.match(/\[ACCION_CASO:\s*(\{[\s\S]*?\})\s*\]/i);
@@ -2484,6 +2597,13 @@ function getManufacturerFallback(
       snippet: `Centro oficial de soporte técnico de control de acceso, barreras vehiculares y terminales ZKTeco.`,
     });
   } else if (b.includes("hikvision") || b.includes("hik-connect") || b.includes("hilook") || b.includes("ivms") || b.includes("sadp")) {
+    if (domainId === "integracion_api_sdk") {
+      refs.push({
+        title: "Hikvision Technology Partner Portal (TPP) — Documentación ISAPI, Device Network SDK e ISUP",
+        url: "https://tpp.hikvision.com/",
+        snippet: "Portal oficial verificado para desarrolladores e integradores Hikvision (protocolos ISAPI, Device Network SDK e ISUP).",
+      });
+    }
     if (m) {
       refs.push({
         title: `Hikvision ${m} — Guías Técnicas de Configuración y Diagnóstico Oficiales`,
