@@ -345,6 +345,50 @@ const FAULT_DOMAINS: FaultDomainDef[] = [
       "quemado",
     ],
   },
+  {
+    id: "integracion_api_sdk",
+    label: "Integración API, SDK, ISAPI y Base de Datos Externa",
+    webSearchHint: "ISAPI SDK API datasheet integracion especificaciones",
+    strongPhrases: [
+      "base de datos externa",
+      "base de datos",
+      "api o sdk",
+      "mediante programacion",
+      "mediante programación",
+      "reconocimiento facial",
+      "comparacion facial",
+      "comparación facial",
+      "extraer informacion",
+      "extraer información",
+      "entrada y salida",
+      "http listening",
+      "device network sdk",
+      "alertstream",
+      "integrar la camara",
+      "integrar la cámara",
+    ],
+    keywords: [
+      "api",
+      "sdk",
+      "isapi",
+      "isup",
+      "ehome",
+      "webhook",
+      "rest",
+      "json",
+      "xml",
+      "programacion",
+      "programación",
+      "integracion",
+      "integración",
+      "desarrollo",
+      "software",
+      "extraer",
+      "asistencia",
+      "colaborador",
+      "hikcentral",
+    ],
+  },
 ];
 
 interface IndexedPrecedent {
@@ -480,9 +524,14 @@ function isGenericCaseTitle(title?: string | null): boolean {
 }
 
 function computeDomainScores(rawText: string): { scores: Record<string, number>; primaryDomain: string } {
-  // Neutralizar frases incidentales de login ("ingrese con su usuario y contraseña") para que no disparen falsos positivos de reset de contraseña
+  // Neutralizar frases incidentales de login y envoltorios OCR para evitar falsos positivos
   const sanitized = (rawText || "")
     .toLowerCase()
+    .replace(/\[lectura ocr local de captura[^\]]*\]/gi, " ")
+    .replace(/texto literal visible en la imagen:?/gi, " ")
+    .replace(/nota t[eé]cnica:\s*usar los modelos[^\n]*/gi, " ")
+    .replace(/\[an[aá]lisis t[eé]cnico del adjunto\]/gi, " ")
+    .replace(/\[adjunto:\s*imagen\]/gi, " ")
     .replace(/usuario\s+y\s+contrase[ñn]a(\s+de\s+administrador)?/g, "credenciales de acceso")
     .replace(/ingrese\s+(la\s+)?contrase[ñn]a/g, "ingrese credencial");
 
@@ -514,9 +563,17 @@ function computeDomainScores(rawText: string): { scores: Record<string, number>;
   return { scores, primaryDomain: bestScore >= 14 ? bestDomain : "" };
 }
 
+function normalizeOcrModelTypos(text: string): string {
+  if (!text) return "";
+  return text.replace(
+    /\b((?:i?ds|hik)-2c[a-z0-9]+)-1(zs|zhs|z|s|w|m|h|b|f|e)\b/gi,
+    "$1-I$2"
+  );
+}
+
 function extractValidHardwareModels(text: string): string[] {
   if (!text) return [];
-  const cleanText = text
+  const cleanText = normalizeOcrModelTypos(text)
     .replace(/nota-voz-[\w.-]+/gi, " ")
     .replace(/\bfe\/\d{4}\/\d+\b/gi, " ")
     .replace(/\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/g, " ")
@@ -1285,10 +1342,11 @@ export async function POST(req: NextRequest) {
             substantiveParts.push(`Audio del cliente: "${m.transcription}"`);
             fullEvidenceParts.push(String(m.transcription));
           } else if (m._visionAnalysis && !m._visionAnalysis.includes("[ANÁLISIS DE ADJUNTO NO DISPONIBLE")) {
-            const condensed = sanitizeAndCompactVision(m._visionAnalysis, isRecentVisual ? 1200 : 750);
+            const normalizedVision = normalizeOcrModelTypos(m._visionAnalysis);
+            const condensed = sanitizeAndCompactVision(normalizedVision, isRecentVisual ? 1200 : 750);
             line += `\n   -> ANÁLISIS TÉCNICO DEL ADJUNTO:\n${condensed}`;
-            substantiveParts.push(sanitizeAndCompactVision(m._visionAnalysis, 700));
-            fullEvidenceParts.push(String(m._visionAnalysis));
+            substantiveParts.push(sanitizeAndCompactVision(normalizedVision, 700));
+            fullEvidenceParts.push(normalizedVision);
           } else {
             line += `\n   -> [ATENCIÓN: No se pudo extraer el análisis visual de este adjunto (${m.fileName || kind}). NO asumas ni inventes su contenido; indícale al técnico si necesitas que te describa lo que muestra la captura.]`;
             substantiveParts.push(`Evidencia adjunta sin análisis visual disponible: ${m.fileName || kind}`);
@@ -1316,16 +1374,18 @@ export async function POST(req: NextRequest) {
         .filter((ml) => !recentLines.includes(ml))
         .slice(-3)
         .map((ml) => (ml.length > 750 ? `${ml.slice(0, 750)}...` : ml));
-      openCaseConversation = [...missingMediaLines, ...recentLines].join("\n\n");
-      substantiveOpenCaseText = substantiveParts.slice(-20).join("\n");
+      openCaseConversation = normalizeOcrModelTypos([...missingMediaLines, ...recentLines].join("\n\n"));
+      substantiveOpenCaseText = normalizeOcrModelTypos(substantiveParts.slice(-20).join("\n"));
 
-      const fullCaseTextCorpus = `${targetCase?.marca || ""} ${targetCase?.modelo || ""} ${clienteData?.modelo || ""} ${fullEvidenceParts.join("\n")}`;
+      const fullCaseTextCorpus = normalizeOcrModelTypos(
+        `${targetCase?.marca || ""} ${targetCase?.modelo || ""} ${clienteData?.modelo || ""} ${fullEvidenceParts.join("\n")}`
+      );
       detectedCaseModels = extractValidHardwareModels(fullCaseTextCorpus);
       const has2CE = /\b(?:hik-)?ds-2ce\w*/i.test(fullCaseTextCorpus);
       const hasAnalogSignals = /\b(?:ds-2ce|hik-ds-2ce|hqhi|hghi|huhi|xvr|an[aá]log[ao]|anal[oó]gica|coaxial|hdtvi|hdcvi|ahd|cvbs|5\s*in\s*1)\b/i.test(
         fullCaseTextCorpus
       );
-      const hasPureIpCam = /\b(?:ds-2cd|ipc-)\w*/i.test(fullCaseTextCorpus);
+      const hasPureIpCam = /\b(?:i?ds-2cd|ipc-)\w*/i.test(fullCaseTextCorpus);
       if (hasAnalogSignals && (has2CE || !hasPureIpCam)) {
         isAnalogCoaxCase = true;
         detectedArchitecture =
@@ -1344,7 +1404,7 @@ export async function POST(req: NextRequest) {
           new Promise<null>((r) => setTimeout(() => r(null), 28000)),
         ]);
         if (result) {
-          techMediaAnalysis = result;
+          techMediaAnalysis = normalizeOcrModelTypos(result);
         }
       } catch (err: any) {
         console.warn("[tech-assistant] Error analizando adjunto del técnico:", err?.message);
@@ -1383,7 +1443,8 @@ export async function POST(req: NextRequest) {
     ];
 
     // ── 5. Motor de Relevancia por Dominio Técnico de Avería (sin falsos positivos) ──
-    const isGenericDiagnosticPrompt = /diagnostique y resuelva|identifique el equipo|procedimiento técnico/i.test(message || "");
+    const isGenericDiagnosticPrompt =
+      /diagnostique y resuelva|identifique el equipo|procedimiento técnico|analice este caso abierto/i.test(message || "");
     const userQueryOnly: string = isGenericDiagnosticPrompt ? "" : String(message || "");
 
     const cleanCaseTitle = !isGenericCaseTitle(targetCase?.title) ? String(targetCase?.title || "") : "";
@@ -1456,6 +1517,20 @@ export async function POST(req: NextRequest) {
     // Clasificar el dominio técnico exacto de la consulta / caso actual
     const { scores: queryDomainScores, primaryDomain: activeFaultDomain } = computeDomainScores(primaryTopicText);
     const activeDomainDef = FAULT_DOMAINS.find((d) => d.id === activeFaultDomain) || null;
+
+    const consultCorpus = `${substantiveOpenCaseText} ${userQueryOnly} ${cleanCaseDesc}`;
+    const hasConsultIntent =
+      /quer[ií]amos saber si|quer[ií]a saber si|se puede utilizar|se puede usar|se puede conectar|es compatible|funciona con|soporta|sirve para|api o sdk|alguna api|base de datos externa|mediante programaci[oó]n/i.test(
+        consultCorpus
+      );
+    const hasActiveBreakdown =
+      /no enciende|no da video|pantalla negra|dej[oó] de funcionar|sin se[ñn]al|no graba|error de disco|aver[ií]a/i.test(
+        consultCorpus
+      );
+    const isConsultationCase =
+      String(clienteData?.tipo_consulta || "").toLowerCase().trim() === "consulta" ||
+      activeFaultDomain === "integracion_api_sdk" ||
+      (hasConsultIntent && !hasActiveBreakdown);
 
     // Extraer únicamente las frases y palabras clave que SÍ están presentes en la avería actual (ordenadas por especificidad)
     const activeFaultTerms: string[] = [];
@@ -1776,6 +1851,12 @@ export async function POST(req: NextRequest) {
         let subject = "";
         if (isAnalogCoaxCase && /formate|reset|restablec|valores\s+de\s+f[aá]brica/i.test(userQueryOnly)) {
           subject = "menu OSD PTZ reset restablecer camara analoga DVR";
+        } else if (isConsultationCase || activeFaultDomain === "integracion_api_sdk") {
+          const consultTerms = activeFaultTerms.slice(0, 3).join(" ");
+          subject =
+            activeFaultDomain === "integracion_api_sdk"
+              ? `${consultTerms} ISAPI SDK face comparison datasheet`.trim()
+              : consultTerms || tokenHint || "datasheet especificaciones compatibilidad";
         } else if (!isMetaMediaQuery && cleanUserMsg.length > 8) {
           subject = isAnalogCoaxCase ? `${cleanUserMsg} menu OSD DVR camara analoga` : cleanUserMsg;
         } else if (isAnalogCoaxCase) {
@@ -1790,8 +1871,12 @@ export async function POST(req: NextRequest) {
         const queryForWeb = baseQuery.length >= 3 ? baseQuery : `${primaryBrand} ${hardwareModelForWeb} manual configuracion`.trim();
 
         if (queryForWeb.length >= 3) {
-          const officialQuery = `${queryForWeb} manual configuracion`;
-          const forumQuery = `${queryForWeb} solucion`;
+          const officialQuery = isConsultationCase
+            ? `${queryForWeb} datasheet especificaciones`
+            : `${queryForWeb} manual configuracion`;
+          const forumQuery = isConsultationCase
+            ? `${queryForWeb} ISAPI SDK`
+            : `${queryForWeb} solucion`;
           console.log(`[tech-assistant] 🌐 Web oficial: "${officialQuery}" | Foros: "${forumQuery}"`);
 
           const [officialRes, forumRes] = await Promise.race([
@@ -1952,21 +2037,36 @@ export async function POST(req: NextRequest) {
       .filter(Boolean)
       .join("\n");
 
-    const rule3Section = isGenericDiagnosticPrompt
-      ? `3. ESTRUCTURA DE RESOLUCIÓN TÉCNICA (OBLIGATORIA al analizar el caso):
+    const rule3Section =
+      isGenericDiagnosticPrompt && isConsultationCase
+        ? `3. ESTRUCTURA DE CONSULTA TÉCNICA (OBLIGATORIA cuando el cliente pregunta compatibilidad, integración o funciones antes de comprar/implementar):
+   Este caso NO es una avería de hardware; el cliente está consultando viabilidad técnica / integración / especificaciones. Prohibido inventar "Falla y Causa Raíz" o "Solución Comprobada en Taller". Responde de forma concisa y directa en estas secciones (usa el título exacto seguido de dos puntos):
+   Respuesta Directa (Sí / No / Condiciones):
+   Máximo 2 a 3 líneas respondiendo claramente si el equipo exacto soporta lo que pide el cliente y bajo qué condición real (ej. requiere middleware propio, no conecta directo a SQL).
+
+   Capacidades Reales y Protocolos del Equipo:
+   Lista breve con puntos ("• ") sobre lo que sí soporta el modelo exacto (ej. ISAPI REST/HTTP Listening, Device Network SDK, ISUP, bibliotecas faciales, metadatos de eventos).
+
+   Consideraciones Técnicas / Alternativa Recomendada:
+   Qué limitación práctica debe conocer el cliente (ej. diferencia entre cámara DeepinView CCTV y terminal biométrico MinMoe DS-K1T para entradas/salidas de empleados) y qué alternativa conviene si aplica.
+
+   Respuesta Sugerida para el Cliente:
+   Máximo 3 a 4 líneas claras, listas para enviar al cliente.`
+        : isGenericDiagnosticPrompt
+          ? `3. ESTRUCTURA DE RESOLUCIÓN TÉCNICA (OBLIGATORIA al analizar el caso):
    Responde con un Plan Técnico Resolutivo CONCISO, DIRECTO Y SIN RELLENO TEÓRICO en estas secciones (usa el título exacto seguido de dos puntos):
    Falla y Causa Raíz:
    Máximo 2 a 3 líneas directas indicando marca/modelo exacto, qué muestran las capturas o audios del cliente y la causa técnica puntual. Prohibido redactar párrafos largos de teoría.
 
    Solución Comprobada en Taller / Documentada:
-   Máximo 2 líneas concretas indicando qué ajuste exacto resolvió esta falla en los precedentes de Sekunet, historial del cliente o manuales oficiales. Prohibido usar frases genéricas de relleno.
+   Máximo 2 líneas concretas. Solo menciona "Solución Comprobada en Taller" si existe un precedente [C#] pertinente arriba; de lo contrario indica honestamente que el ajuste proviene de documentación oficial del fabricante o manual técnico. Prohibido usar frases genéricas de relleno.
 
    Procedimiento de Resolución (Paso a Paso):
    Pasos técnicos cortos, directos y numerados (1., 2., 3.) con la ruta o menú exacto en el equipo o software de la marca para solucionar el problema de inmediato.
 
    Instrucción Concreta para el Cliente:
    Máximo 2 líneas directas con la prueba o confirmación puntual que se le debe indicar al cliente.`
-      : `3. RESPUESTA DIRECTA A LA PREGUNTA O CORRECCIÓN DEL TÉCNICO:
+          : `3. RESPUESTA DIRECTA A LA PREGUNTA O CORRECCIÓN DEL TÉCNICO:
    El técnico NO pidió un diagnóstico genérico repetitivo; hizo una pregunta puntual o señaló una corrección en el chat.
    - Responde DIRECTA, EXACTA Y CONCISAMENTE a lo que preguntó o corrigió el técnico basándote en los últimos mensajes de <<<CONVERSACION_CASO_ACTUAL>>>.
    - NO fuerces el molde rígido de 4 secciones si una explicación directa con pasos numerados claros (1., 2., 3.) responde mejor a su pregunta.`;
@@ -2013,6 +2113,11 @@ Si en un caso de videoportero, intercomunicador, CCTV o control de acceso se men
 
 0.3 FIDELIDAD ABSOLUTA AL CHAT ACTUAL Y DESCARTAR FUENTES IRRELEVANTES:
 Lee la conversación completa en <<<CONVERSACION_CASO_ACTUAL>>> desde el inicio hasta EL ÚLTIMO MENSAJE, incluyendo cualquier corrección del técnico (por ejemplo si el técnico dijo que se equivocó, que vuelvan al menú del grabador, o especificó que la cámara es análoga). Si un precedente [C#], manual [M#] o enlace web [W#] corresponde a otro tipo de equipo (por ejemplo un NVR o cámara IP cuando el caso trata una cámara análoga en DVR, o un biométrico en un caso de CCTV), IGNÓRALO POR COMPLETO y no lo menciones ni lo cites.
+
+0.4 INTEGRACIÓN API / SDK / RECONOCIMIENTO FACIAL / BASE DE DATOS EXTERNA:
+- Las cámaras y terminales Hikvision NO se conectan directamente por sí solas a una base de datos SQL externa. Siempre requieren un servicio puente / middleware desarrollado por el cliente que consuma los protocolos oficiales de Hikvision: ISAPI (API REST sobre HTTP/HTTPS + notificaciones HTTP Listening / AlertStream en XML/JSON), Device Network SDK (librerías C/C++/C#/Python DLL/SO) o ISUP (registro hacia plataforma en la nube/WAN).
+- Prohibido inventar nombres de SDK inexistentes como "Face SDK"; usa estrictamente los nombres oficiales: ISAPI, Device Network SDK e ISUP.
+- Distingue con precisión técnica: las cámaras IP DeepinView con comparación facial (como la iDS-2CD7186G0-IZS) sí soportan captura y comparación facial con bibliotecas de rostros internas y entregan por ISAPI o Device Network SDK el evento de coincidencia con fecha/hora e identificador de persona/rostro, pero son cámaras de videovigilancia (no llevan registro nativo de marcación entrada/salida salvo que el sistema externo distinga cámaras de entrada vs salida). Para control de asistencia puntual de entrada y salida de colaboradores con ID de empleado, aclara además que los terminales biométricos faciales Hikvision MinMoe (serie DS-K1T...) están diseñados específicamente para marcación e integración de asistencia por ISAPI/SDK o HikCentral.
 
 1. MÁXIMA PRIORIDAD A RESOLVER LA AVERÍA: El técnico te consulta para encontrar la SOLUCIÓN EXACTA. Fundamenta tu respuesta en la conversación abierta real, las evidencias adjuntas, las soluciones comprobadas en casos previos del mismo cliente o taller cuando realmente apliquen, y procedimientos técnicos exactos de la marca.
 2. FOCO Y DESTINATARIO: Tu respuesta va dirigida ÚNICA Y EXCLUSIVAMENTE al caso y cliente abierto en pantalla. Nunca menciones nombres de clientes pasados.

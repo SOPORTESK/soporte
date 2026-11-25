@@ -563,7 +563,7 @@ export function FloatingTechAssistant() {
     localStorage.removeItem("sek_tech_assistant_session_v9");
     if (resolved) {
       await handleSend(
-        "Diagnostique y resuelva la avería de este caso: identifique el equipo y la falla reportada por el cliente, consulte los precedentes y casos similares resueltos en Sekunet, y brinde el procedimiento técnico exacto y comprobado para solucionarlo de inmediato.",
+        "Analice este caso abierto: identifique el equipo exacto y la solicitud real del cliente (consulta de compatibilidad/integración, configuración o avería), verifique los datos técnicos reales y brinde una respuesta directa y exacta.",
         [],
         resolved
       );
