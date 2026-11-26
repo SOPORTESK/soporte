@@ -180,7 +180,11 @@ export async function getProviderConfigs(): Promise<
 export async function getChain(role: AiRole): Promise<ResolvedModel[]> {
   const cfg = await loadConfig();
   const configured = cfg.byRole.get(role) ?? [];
-  const source = configured.length > 0 ? configured : FALLBACK_CHAINS[role];
+  const rawSource = configured.length > 0 ? configured : FALLBACK_CHAINS[role];
+  const source =
+    role === "chat" || role === "meta_chat"
+      ? rawSource.filter((m) => !/\bmistral-7b\b|\bllama-2-|\bgemma-7b\b/i.test(m.modelo))
+      : rawSource;
 
   const expanded: ResolvedModel[] = [];
   for (const m of source) {
@@ -225,9 +229,9 @@ export interface GenerateOptions {
  * evitando perder segundos reintentando un proveedor que acaba de fallar.
  */
 const modelCooldownUntil = new Map<string, number>();
-const COOLDOWN_DEAD_MS = 30 * 60_000;  // 30 minutos para 402 / 404 / 410 (sin saldo o modelo retirado)
-const COOLDOWN_RATE_MS = 10 * 60_000;  // 10 minutos para 429 (límite de tasa/cuota)
-const COOLDOWN_ERROR_MS = 180_000;     // 3 minutos para 5xx / timeout / red
+const COOLDOWN_DEAD_MS = 30 * 60_000;  // 30 minutos para 401 / 402 / 403 / 404 / 410 (sin saldo, key inválida o modelo retirado)
+const COOLDOWN_RATE_MS = 20_000;       // 20 segundos para 429 (los límites por minuto RPM/TPM en Groq se liberan en segundos)
+const COOLDOWN_ERROR_MS = 45_000;      // 45 segundos para 5xx / timeout / red
 
 export function isModelCooledDown(key: string): boolean {
   return (modelCooldownUntil.get(key) ?? 0) > Date.now();

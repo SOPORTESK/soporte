@@ -607,10 +607,17 @@ function computeDomainScores(rawText: string): { scores: Record<string, number>;
 
 function normalizeOcrModelTypos(text: string): string {
   if (!text) return "";
-  return text.replace(
-    /\b((?:i?ds|hik)-2c[a-z0-9]+)-1(zs|zhs|z|s|w|m|h|b|f|e)\b/gi,
-    "$1-I$2"
-  );
+  return text
+    .replace(/[\u2010-\u2015\u2212]/g, "-")
+    .replace(
+      /\b((?:i?ds|hik)-2c[a-z0-9]+)-1(zs|zhs|z|s|w|m|h|b|f|e)\b/gi,
+      "$1-I$2"
+    )
+    .replace(
+      /\b((?:hik-)?ds-pd[a-z0-9]+)-eq(2-(?:wb|we)[a-z0-9()]*)\b/gi,
+      "$1-EG$2"
+    )
+    .replace(/\b((?:hik-)?ds-pdp)16(p-eg2-(?:wb|we)[a-z0-9()]*)\b/gi, "$115$2");
 }
 
 const URL_VERIFY_CACHE_TTL_MS = 15 * 60_000;
@@ -1579,7 +1586,11 @@ export async function POST(req: NextRequest) {
         fullCaseTextCorpus
       );
       const hasPureIpCam = /\b(?:i?ds-2cd|ipc-)\w*/i.test(fullCaseTextCorpus);
-      if (hasAnalogSignals && (has2CE || !hasPureIpCam)) {
+      const hasAxHomeSignals = /\b(?:ax[\s-]?home|axhome|ds-pa201ps)\b/i.test(fullCaseTextCorpus);
+      if (hasAxHomeSignals) {
+        detectedArchitecture =
+          "Alarma Inalámbrica Residencial Hikvision AX Home (DS-PA201PS-16WB): conexión Wi-Fi 2.4 GHz; NO tiene puerto para cable de red Ethernet RJ45 integrado de fábrica (el módulo de red DS-PC201N se vende por separado), NO tiene interfaz web local por dirección IP (no existe acceso por navegador a 192.168.1.x ni usuario admin web) y NO permite subir archivos de firmware manualmente por navegador. Su configuración, vinculación de sensores QR y actualización de firmware OTA se realizan exclusivamente desde la app móvil Hik-Connect o Hik-Partner Pro.";
+      } else if (hasAnalogSignals && (has2CE || !hasPureIpCam)) {
         isAnalogCoaxCase = true;
         detectedArchitecture =
           "Sistema Analógico / Turbo HD (DVR + cámara análoga coaxial HDTVI; NO tiene dirección IP ni aparece en SADP Tools ni tiene web propia — sus parámetros internos y reset de fábrica se operan vía menú OSD coaxial con Control PTZ desde el grabador)";
@@ -2214,7 +2225,10 @@ export async function POST(req: NextRequest) {
             if (/\bwiegand\b/i.test(lower)) pushFeat("Wiegand");
             if (/\brs-?485\b/i.test(lower)) pushFeat("RS485");
             if (/\broaming\b/i.test(lower)) pushFeat("roaming");
-            if (/\bfirmware\b/i.test(lower)) pushFeat("firmware");
+            if (/\bfirmware\b|actualizar|actualizaci[oó]n/i.test(lower)) pushFeat("firmware");
+            if (/\b(?:interfaz\s+web|web\s+interface|navegador|ethernet|rj45|cable\s+de\s+red)\b/i.test(lower)) {
+              pushFeat("web interface ethernet specifications");
+            }
             if (/\b(?:reset|restablec)\b/i.test(lower)) pushFeat("reset");
             if (/\b(?:cloud|nube|ekit)\b/i.test(lower)) pushFeat("cloud");
             if (/\b(?:hybrid\s+light|luz\s+h[ií]brida|d[ií]a\s*\/?\s*noche|day\s*\/?\s*night)\b/i.test(lower)) {
@@ -2752,6 +2766,11 @@ Lee la conversación completa en <<<CONVERSACION_CASO_ACTUAL>>> desde el inicio 
   • Si requiere configuración, da el paso a paso accionable o la pregunta exacta de diagnóstico para destrabar al técnico y al cliente en el siguiente mensaje.
 - Siempre verifica el nombre oficial y familia exacta de CADA modelo en [W#]/[M#] (por ejemplo, tanto el AP361 como el AP160 son Huawei eKitEngine; jamás llames AirEngine a un AP eKitEngine; y AX Home es un panel/línea de alarma Hikvision distinta de la app Hik-Connect).
 
+0.7 PANELES DE ALARMA INALÁMBRICA HIKVISION AX HOME (DS-PA201PS-16WB) Y SENSORES (-WB / -WE):
+- SIN PUERTO DE RED ETHERNET NI INTERFAZ WEB LOCAL: El panel Hikvision AX Home (DS-PA201PS-16WB) NO tiene puerto para cable de red Ethernet (RJ45) integrado de fábrica (opera por Wi-Fi 2.4 GHz; la conexión de red cableada solo existe si se instala por separado el módulo opcional DS-PC201N) y NO tiene interfaz web local por navegador ni dirección IP predeterminada (PROHIBIDO decir que se conecta por cable Ethernet, PROHIBIDO dar IPs como 192.168.1.100 o 192.168.1.64 y PROHIBIDO pedir que abran un navegador web con usuario admin).
+- CONFIGURACIÓN Y ACTUALIZACIÓN DE FIRMWARE: El panel AX Home se configura, administra y actualiza al 100% desde la aplicación móvil Hik-Connect o Hik-Partner Pro vía nube (OTA), entrando a la configuración del panel → Sistema → Versión del dispositivo / Actualizar. No es posible cargar manualmente por navegador web un archivo de firmware descargado en PC.
+- SINCRONIZACIÓN DE SENSORES INALÁMBRICOS (ej. DS-PDP15P-EG2-WB / DS-PDP15P-EG2-WB(B)): Cuando al vincular un sensor en AX Home aparece "No es compatible", se debe verificar que el panel AX Home esté actualizado a la última versión de firmware liberada en la nube (como V1.2.0 build 251121 o superior) y que la revisión del sensor soporte AX Home (teniendo presente que una vez actualizado/modificado el sensor para AX Home, no se puede volver a enlazar con un panel AX PRO). JAMÁS inventes centrales inexistentes como "DS-10A" o "DS-11A".
+
 1. MÁXIMA PRIORIDAD A RESOLVER LA AVERÍA: El técnico te consulta para encontrar la SOLUCIÓN EXACTA. Fundamenta tu respuesta en la conversación abierta real, las evidencias adjuntas, las soluciones comprobadas en casos previos del mismo cliente o taller cuando realmente apliquen, y procedimientos técnicos exactos de la marca.
 2. FOCO Y DESTINATARIO: Tu respuesta va dirigida ÚNICA Y EXCLUSIVAMENTE al caso y cliente abierto en pantalla. Nunca menciones nombres de clientes pasados.
 ${rule3Section}
@@ -2797,13 +2816,25 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
 
     // ── 7. Generar respuesta con IA (Multi-provider Fallback Chain + Rescate Compacto) ──
     let responseText = "";
+    const POISONED_ASSISTANT_RE =
+      /192\.168\.1\.100|v[ií]a\s+web\s*\(ip\s+del\s+panel\)|ax\s*home[^.]*interfaz\s+web|cable\s+ethernet|\bds-10a\b|\bds-11a\b|\bairengine\b/i;
+    const sanitizedHistoryForGen =
+      isGenericDiagnosticPrompt || isDraftAction || isFindResourcesAction
+        ? []
+        : messages
+            .filter((m) => !(m.role === "assistant" && POISONED_ASSISTANT_RE.test(String(m.content || ""))))
+            .slice(-6);
+    const aiMessagesForGen = [
+      ...sanitizedHistoryForGen,
+      { role: "user" as const, content: aiUserMsgContent },
+    ];
 
     try {
       const aiGen = await generateText("chat", {
         system: systemPrompt,
-        messages: aiMessages.map((m) => ({
+        messages: aiMessagesForGen.map((m) => ({
           role: m.role === "assistant" ? "assistant" : "user",
-          content: m.content,
+          content: normalizeOcrModelTypos(m.content),
         })),
         temperature: 0.1,
         maxTokens: isFindResourcesAction ? 900 : 3072,
@@ -2862,21 +2893,23 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
       !isFindResourcesAction &&
       !isTrivialGreeting &&
       !isMetaCorrectionOnly &&
-      responseText.length >= 60 &&
-      (isDraftAction || hardwareModelsForWeb.length > 0 || isConsultationCase);
+      responseText.length >= 60;
 
     if (shouldRunFactAudit) {
       try {
-        const auditSystemPrompt = `Eres el Auditor Técnico de Calidad y Veracidad de Sekunet. Tu única función es detectar y corregir datos inventados, familias de producto erróneas, restricciones falsas o enlaces inventados en el BORRADOR comparándolo estrictamente contra EVIDENCIA VERIFICADA.
+        const auditSystemPrompt = `Eres el Auditor Técnico de Calidad y Veracidad de Sekunet. Tu única función es detectar y corregir datos inventados, familias de producto erróneas, interfaces web o puertos físicos falsos, restricciones falsas o enlaces inventados en el BORRADOR comparándolo estrictamente contra EVIDENCIA VERIFICADA y la arquitectura real del equipo.
 
 CRITERIOS OBLIGATORIOS DE AUDITORÍA (POLÍTICA DE 3 ESTADOS):
-1. Familias y líneas de producto exactas: confirma que cada modelo citado corresponda exactamente a la familia/línea que aparece en EVIDENCIA VERIFICADA (por ejemplo, ambos AP361 y AP160 son Huawei eKitEngine; nunca decir AirEngine). La documentación oficial del fabricante [W#]/[M#] SIEMPRE prevalece sobre cualquier precedente [C#].
+1. Familias y líneas de producto exactas: confirma que cada modelo citado corresponda exactamente a la familia/línea que aparece en EVIDENCIA VERIFICADA (por ejemplo, ambos AP361 y AP160 son Huawei eKitEngine; nunca decir AirEngine). La documentación oficial del fabricante [W#]/[M#] SIEMPRE prevalece sobre cualquier precedente [C#] o mensaje previo del asistente.
 2. Regla estricta SÍ / NO / SIN CONFIRMACIÓN contra EVIDENCIA VERIFICADA:
    - Si EVIDENCIA VERIFICADA incluye un documento oficial del fabricante indicando explícitamente que un modelo NO soporta una función (ej. "not supported by...", "do not support...", "The Mesh function is not supported by the following AP models: AP160 and AP361") y el BORRADOR dice que SÍ se puede configurar o da pasos para habilitarla, REESCRIBE el borrador dejando claro que NO lo soporta según la documentación oficial del fabricante, aclara las familias reales y recomienda la alternativa cableada (Ethernet/PoE) o modelos compatibles.
    - Si EVIDENCIA VERIFICADA no contiene tal prohibición oficial, elimina cualquier restricción inventada ("solo funciona con el mismo modelo", "protocolos incompatibles", etc.) y declara honestamente si falta confirmación oficial.
-3. Modelos sin documentación: si algún modelo figura en "SIN DOCUMENTACIÓN VERIFICADA" y el borrador inventa sus especificaciones o compatibilidad, reescribe aclarando con honestidad que no se encontró documentación oficial verificada para ese modelo y limita los datos técnicos a lo sí comprobado.
-4. Cero enlaces, SDK o herramientas inexistentes: elimina URLs inventadas y nombres falsos como "developer.hikvision.com" o "Face SDK" (los oficiales Hikvision son ISAPI, Device Network SDK e ISUP).
-5. Formato y destinatario: CERO asteriscos (*), CERO encabezados con #, viñetas con ("• ") y pasos numerados. ${
+3. PROHIBICIÓN ESTRICTA DE INVENTAR INTERFAZ WEB, CABLE ETHERNET O IP PREDETERMINADA:
+   - El panel de alarma inalámbrico Hikvision AX Home (DS-PA201PS-16WB) NO tiene interfaz web local por navegador, NO tiene puerto para cable de red Ethernet RJ45 integrado de fábrica (es Wi-Fi 2.4 GHz; la red cableada requiere un módulo opcional separado DS-PC201N) y NO tiene IP predeterminada 192.168.1.100 ni login web admin/admin. Tampoco permite subir un archivo de firmware manualmente desde un navegador web; se gestiona y actualiza exclusivamente por la nube (OTA) desde la app móvil Hik-Connect o Hik-Partner Pro. Si el borrador dice que AX Home tiene interfaz web, cable Ethernet o IP 192.168.1.100, REESCRÍBELO DE INMEDIATO desmintiéndolo con claridad.
+   - Tampoco permitas inventar direcciones IP predeterminadas (192.168.1.100, 192.168.1.64, 192.168.0.1) ni credenciales por defecto (admin/admin) ni puertos físicos para ningún equipo si no constan en EVIDENCIA VERIFICADA.
+4. Modelos sin documentación: si algún modelo figura en "SIN DOCUMENTACIÓN VERIFICADA" y el borrador inventa sus especificaciones o compatibilidad (o inventa centrales inexistentes como DS-10A / DS-11A), reescribe aclarando con honestidad los datos verificados del caso.
+5. Cero enlaces, SDK o herramientas inexistentes: elimina URLs inventadas y nombres falsos como "developer.hikvision.com" o "Face SDK" (los oficiales Hikvision son ISAPI, Device Network SDK e ISUP).
+6. Formato y destinatario: CERO asteriscos (*), CERO encabezados con #, viñetas con ("• ") y pasos numerados. ${
           isDraftAction
             ? "Es un BORRADOR PARA EL CLIENTE por WhatsApp: mantén tono amable y directo hacia el cliente, sin mencionar fuentes internas [W#]/[M#]/[C#] ni notas internas de taller."
             : "Es una respuesta PRIVADA PARA EL TÉCNICO DE TALLER: conserva estructura clara y directa."
@@ -2884,10 +2917,10 @@ CRITERIOS OBLIGATORIOS DE AUDITORÍA (POLÍTICA DE 3 ESTADOS):
 
 REGLA DE RESPUESTA:
 - Si el borrador cumple TODOS los puntos anteriores sin errores ni afirmaciones sin respaldo, responde ÚNICAMENTE con la palabra exacta: VERIFIED_OK
-- Si detectas cualquier error, contradicción o dato inventado, responde ÚNICAMENTE con la versión corregida completa lista para entregar, sin introducciones ni explicaciones meta ("Versión corregida:", etc.).`;
+- Si detectas cualquier error, contradicción o dato inventado, responde ÚNICAMENTE con la versión corregida completa lista para entregar, conservando los encabezados naturales del borrador y sin títulos meta internos ("Versión corregida:", "Conclusiones basadas en la EVIDENCIA VERIFICADA", etc.).`;
 
         const auditPayload = [
-          `CASO / CONSULTA:\nEquipo: ${equipoLinea}\nModelos sin doc verificada: ${unverifiedModels.length > 0 ? unverifiedModels.map((m) => m.toUpperCase()).join(", ") : "Ninguno"}\nSolicitud: ${displayMsg}\nChat reciente:\n${openCaseConversation.slice(-2000)}`,
+          `CASO / CONSULTA:\nEquipo: ${equipoLinea}${detectedArchitecture ? `\nArquitectura confirmada: ${detectedArchitecture}` : ""}\nModelos sin doc verificada: ${unverifiedModels.length > 0 ? unverifiedModels.map((m) => m.toUpperCase()).join(", ") : "Ninguno"}\nSolicitud: ${displayMsg}\nChat reciente:\n${openCaseConversation.slice(-2400)}`,
           `EVIDENCIA VERIFICADA:\n${[
             webContext ? clipBlock(webContext, 5200) : "Sin resultados web",
             ragContext ? clipBlock(ragContext, 1000) : "",
