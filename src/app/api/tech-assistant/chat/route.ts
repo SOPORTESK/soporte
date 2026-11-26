@@ -1365,9 +1365,26 @@ export async function POST(req: NextRequest) {
 
       if (attachments.length > 0) {
         let changed = false;
-        // Priorizar adjuntos pendientes de transcripción o análisis
+        const BOGUS_VISION_RE =
+          /\b(?:zapatilla\s+deportiva|zapatillas?\b|zapatos?\b|calzado|tenis\b|prenda\s+de\s+vestir)\b|no\s+parece\s+ser\s+un\s+equipo\s+de\s+seguridad/i;
+        const caseTextContext = [
+          targetCase?.marca,
+          targetCase?.modelo,
+          ...histCliente.map((m: any) => m.content || m.transcription || ""),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .slice(0, 350);
+
+        // Priorizar adjuntos pendientes de transcripción o análisis (o con falso positivo de calzado/fondo)
         const pendingAttachments = attachments
-          .filter((m: any) => !m.transcription && (!m._visionAnalysis || m._visionAnalysis.includes("[ANÁLISIS DE ADJUNTO NO DISPONIBLE")))
+          .filter(
+            (m: any) =>
+              !m.transcription &&
+              (!m._visionAnalysis ||
+                m._visionAnalysis.includes("[ANÁLISIS DE ADJUNTO NO DISPONIBLE") ||
+                BOGUS_VISION_RE.test(String(m._visionAnalysis)))
+          )
           .slice(-8);
 
         await Promise.allSettled(
@@ -1384,11 +1401,12 @@ export async function POST(req: NextRequest) {
                   changed = true;
                 }
               } else {
+                const hintForVision = [att.content || "", caseTextContext].filter(Boolean).join(" — ").slice(0, 400);
                 const result = await Promise.race([
-                  analyzeMedia(att.mediaUrl, att.mediaType, att.content || "", att.fileName || "", 24000),
+                  analyzeMedia(att.mediaUrl, att.mediaType, hintForVision, att.fileName || "", 24000),
                   new Promise<null>((r) => setTimeout(() => r(null), 32000)),
                 ]);
-                if (result) {
+                if (result && !BOGUS_VISION_RE.test(result)) {
                   const patch = (m: any) => (m.mediaUrl === att.mediaUrl ? { ...m, _visionAnalysis: result } : m);
                   for (let i = 0; i < histCliente.length; i++) histCliente[i] = patch(histCliente[i]);
                   for (let i = 0; i < histTecnico.length; i++) histTecnico[i] = patch(histTecnico[i]);
@@ -1541,15 +1559,20 @@ export async function POST(req: NextRequest) {
             line += `\n   -> TRANSCRIPCIÓN LITERAL DEL AUDIO:\n"${m.transcription}"`;
             substantiveParts.push(`Audio del cliente: "${m.transcription}"`);
             fullEvidenceParts.push(String(m.transcription));
-          } else if (m._visionAnalysis && !m._visionAnalysis.includes("[ANÁLISIS DE ADJUNTO NO DISPONIBLE")) {
+          } else if (
+            m._visionAnalysis &&
+            !m._visionAnalysis.includes("[ANÁLISIS DE ADJUNTO NO DISPONIBLE") &&
+            !/\b(?:zapatilla\s+deportiva|zapatillas?\b|calzado)\b|no\s+parece\s+ser\s+un\s+equipo\s+de\s+seguridad/i.test(
+              String(m._visionAnalysis)
+            )
+          ) {
             const normalizedVision = normalizeOcrModelTypos(m._visionAnalysis);
             const condensed = sanitizeAndCompactVision(normalizedVision, isRecentVisual ? 1200 : 750);
             line += `\n   -> ANÁLISIS TÉCNICO DEL ADJUNTO:\n${condensed}`;
             substantiveParts.push(sanitizeAndCompactVision(normalizedVision, 700));
             fullEvidenceParts.push(normalizedVision);
           } else {
-            line += `\n   -> [ATENCIÓN: No se pudo extraer el análisis visual de este adjunto (${m.fileName || kind}). NO asumas ni inventes su contenido; indícale al técnico si necesitas que te describa lo que muestra la captura.]`;
-            substantiveParts.push(`Evidencia adjunta sin análisis visual disponible: ${m.fileName || kind}`);
+            line += `\n   -> [Adjunto multimedia (${m.fileName || kind}) — apóyate en las demás fotos con etiqueta, transcripciones de audio y mensajes del cliente en el chat para identificar el equipo y resolver la consulta.]`;
           }
           mediaTranscriptLines.push(line);
         }
@@ -2770,6 +2793,7 @@ Lee la conversación completa en <<<CONVERSACION_CASO_ACTUAL>>> desde el inicio 
 - SIN PUERTO DE RED ETHERNET NI INTERFAZ WEB LOCAL: El panel Hikvision AX Home (DS-PA201PS-16WB) NO tiene puerto para cable de red Ethernet (RJ45) integrado de fábrica (opera por Wi-Fi 2.4 GHz; la conexión de red cableada solo existe si se instala por separado el módulo opcional DS-PC201N) y NO tiene interfaz web local por navegador ni dirección IP predeterminada (PROHIBIDO decir que se conecta por cable Ethernet, PROHIBIDO dar IPs como 192.168.1.100 o 192.168.1.64 y PROHIBIDO pedir que abran un navegador web con usuario admin).
 - CONFIGURACIÓN Y ACTUALIZACIÓN DE FIRMWARE: El panel AX Home se configura, administra y actualiza al 100% desde la aplicación móvil Hik-Connect o Hik-Partner Pro vía nube (OTA), entrando a la configuración del panel → Sistema → Versión del dispositivo / Actualizar. No es posible cargar manualmente por navegador web un archivo de firmware descargado en PC.
 - SINCRONIZACIÓN DE SENSORES INALÁMBRICOS (ej. DS-PDP15P-EG2-WB / DS-PDP15P-EG2-WB(B)): Cuando al vincular un sensor en AX Home aparece "No es compatible", se debe verificar que el panel AX Home esté actualizado a la última versión de firmware liberada en la nube (como V1.2.0 build 251121 o superior) y que la revisión del sensor soporte AX Home (teniendo presente que una vez actualizado/modificado el sensor para AX Home, no se puede volver a enlazar con un panel AX PRO). JAMÁS inventes centrales inexistentes como "DS-10A" o "DS-11A".
+- APERTURA DE TAPA / CARCASA EN DETECTORES PIR DE TECHO 360° Y SENSORES HIKVISION AX PRO (ej. DS-PDCL12-EG2-WB "Sensor 360"): Si el cliente pregunta cómo se abre el sensor redondo de techo DS-PDCL12-EG2-WB o si la tapa sale "a presión", aclara directamente que NO sale halando a presión recta hacia afuera (forzarla a presión puede quebrar las pestañas internas). El detector utiliza una base trasera giratoria tipo bayoneta (twist-lock): para abrirlo, sujete la carcasa frontal redonda con una mano y gire la base/tapa trasera en sentido antihorario (hacia la izquierda, unos 15-20 grados) hasta desalinear el seguro y separarla suavemente (si ya tuviese colocado el pequeño tornillo lateral de bloqueo, primero debe aflojarse). Al separar la base queda expuesto el compartimento para las baterías CR123A y el interruptor de encendido/enrolamiento.
 
 1. MÁXIMA PRIORIDAD A RESOLVER LA AVERÍA: El técnico te consulta para encontrar la SOLUCIÓN EXACTA. Fundamenta tu respuesta en la conversación abierta real, las evidencias adjuntas, las soluciones comprobadas en casos previos del mismo cliente o taller cuando realmente apliquen, y procedimientos técnicos exactos de la marca.
 2. FOCO Y DESTINATARIO: Tu respuesta va dirigida ÚNICA Y EXCLUSIVAMENTE al caso y cliente abierto en pantalla. Nunca menciones nombres de clientes pasados.
@@ -2917,7 +2941,7 @@ CRITERIOS OBLIGATORIOS DE AUDITORÍA (POLÍTICA DE 3 ESTADOS):
 
 REGLA DE RESPUESTA:
 - Si el borrador cumple TODOS los puntos anteriores sin errores ni afirmaciones sin respaldo, responde ÚNICAMENTE con la palabra exacta: VERIFIED_OK
-- Si detectas cualquier error, contradicción o dato inventado, responde ÚNICAMENTE con la versión corregida completa lista para entregar, conservando los encabezados naturales del borrador y sin títulos meta internos ("Versión corregida:", "Conclusiones basadas en la EVIDENCIA VERIFICADA", etc.).`;
+- Si detectas cualquier error, contradicción o dato inventado, responde ÚNICAMENTE con la versión corregida completa lista para entregar, conservando los encabezados naturales del borrador y sin títulos ni frases meta internas (PROHIBIDO escribir "EVIDENCIA VERIFICADA", "BORRADOR", "Versión corregida:", "Conclusiones basadas en la EVIDENCIA VERIFICADA", etc.).`;
 
         const auditPayload = [
           `CASO / CONSULTA:\nEquipo: ${equipoLinea}${detectedArchitecture ? `\nArquitectura confirmada: ${detectedArchitecture}` : ""}\nModelos sin doc verificada: ${unverifiedModels.length > 0 ? unverifiedModels.map((m) => m.toUpperCase()).join(", ") : "Ninguno"}\nSolicitud: ${displayMsg}\nChat reciente:\n${openCaseConversation.slice(-2400)}`,

@@ -657,67 +657,9 @@ async function pollActivity() {
 
     const win = await getActiveWindow();
     if (!win) {
-      if (!_isIdle) {
-        _isIdle = true;
-        const lockOffsetMs = Math.min((idleSec || 0) * 1000, 30 * 60 * 1000);
-        const lockStartMs = Math.max(_appEnterTime || (now - lockOffsetMs), now - lockOffsetMs);
-        _idleStartTime = lockStartMs;
-        _lastIdleHeartbeat = now;
-        const lockCreatedAt = new Date(lockStartMs).toISOString();
-        if (_lastApp) {
-          const rawDwell = Math.max(0, lockStartMs - _appEnterTime);
-          const dwellMs = Math.min(rawDwell, 30 * 60 * 1000);
-          const dwellSec = Math.round(dwellMs / 1000);
-          if (!isIgnoredSystemWindow(_lastApp, _lastTitle)) {
-            const lastCatInfo = categorizeApp(_lastApp, _lastTitle, _lastUrl);
-            if (dwellMs >= 10000) {
-              const execAction = formatExecutiveAction(lastCatInfo.category, lastCatInfo.label, lastCatInfo.context, dwellMs);
-              await sendLog(execAction, lastCatInfo.category, {
-                app: _lastApp,
-                app_name: lastCatInfo.label,
-                label: lastCatInfo.label,
-                title: _lastTitle,
-                url: _lastUrl || undefined,
-                dwell_seconds: dwellSec,
-                duration_ms: dwellMs,
-                source: 'desktop',
-                context: lastCatInfo.context,
-                context_type: lastCatInfo.context_type,
-                executive_report: true
-              }, lockCreatedAt);
-            }
-            await sendLog(
-              `Pantalla bloqueada mientras usaba "${lastCatInfo.label}"`,
-              'Inactividad',
-              {
-                app: _lastApp,
-                app_name: lastCatInfo.label,
-                title: _lastTitle,
-                idle_seconds: idleSec,
-                duration_ms: Math.max(0, now - lockStartMs),
-                idle_start: lockCreatedAt,
-                reason: 'lock_screen',
-                source: 'desktop'
-              },
-              lockCreatedAt
-            );
-          }
-          _lastApp = null; _lastTitle = null; _lastUrl = null;
-        } else {
-          await sendLog(
-            'Pantalla bloqueada',
-            'Inactividad',
-            {
-              idle_seconds: idleSec,
-              duration_ms: Math.max(0, now - lockStartMs),
-              idle_start: lockCreatedAt,
-              reason: 'lock_screen',
-              source: 'desktop'
-            },
-            lockCreatedAt
-          );
-        }
-      } else if (now - _lastIdleHeartbeat >= HEARTBEAT_EVERY * 1000) {
+      // Si getActiveWindow() devuelve null temporalmente (ej. clic en barra de tareas, bandeja del sistema o ventana sin título)
+      // mientras el usuario NO ha superado el umbral de inactividad, NO asumir bloqueo de pantalla (el bloqueo real lo reporta powerMonitor.on('lock-screen')).
+      if (_isIdle && now - _lastIdleHeartbeat >= HEARTBEAT_EVERY * 1000) {
         const sliceMs = now - _lastIdleHeartbeat;
         const totalIdleMs = now - (_idleStartTime || _lastIdleHeartbeat);
         _lastIdleHeartbeat = now;

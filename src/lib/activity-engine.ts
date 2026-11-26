@@ -1305,8 +1305,10 @@ export function computeUnifiedActivityMetrics(
     const effectiveDur = Math.max(0, clampedDur - coveredMs);
     // Respetar estrictamente el panel de Tolerancia de Inactividad:
     // "Pausas menores a este límite cuentan como trabajo activo dentro de la jornada laboral."
-    // Si la inactividad alcanza o supera el límite de tolerancia (ej. >= 3 min), se contabiliza íntegra como Inactivo.
-    if (effectiveDur >= TOLERANCE_GAP_MS) {
+    // Como el tracker de escritorio emite su primer pulso justo al cumplirse toleranceMin (con jitter de 5-15s del polling),
+    // una pausa que aún está dentro del minuto de tolerancia (ej. 5min 0s o 5min 6s cuando Tol = 5m, es decir Math.floor(effectiveDur / 60000) <= toleranceMin)
+    // NO debe penalizarse como laguna de tiempo perdido.
+    if (effectiveDur >= TOLERANCE_GAP_MS && Math.floor(effectiveDur / 60000) > toleranceMin) {
       const idleMin = Math.max(1, Math.round(effectiveDur / 60000));
       idleTotalMs += effectiveDur;
       const dStart = new Date(clampedStart + coveredMs);
@@ -1397,14 +1399,15 @@ export function computeUnifiedActivityMetrics(
           break;
         }
         const idleBounds = getExplicitIdleBounds(it);
-        const nowMs = Date.now();
         const explicitIdleMs = Math.max(
           idleBounds.endMs - idleBounds.startMs,
           Number(it.duration_ms || (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) || (meta.idle_seconds ? meta.idle_seconds * 1000 : 0)) || 0
         );
-        const ongoingIdleMs = isTodayDay
-          ? Math.min(Math.max(explicitIdleMs, Math.max(0, nowMs - idleBounds.startMs)), 24 * 3600 * 1000)
-          : explicitIdleMs;
+        if (meta.reason === "lock_screen" && explicitIdleMs < 30000) {
+          if (currentIdleBlock) flushIdleBlock();
+          break;
+        }
+        const ongoingIdleMs = explicitIdleMs;
         const rawEndIdleMs = Math.max(idleBounds.endMs, idleBounds.startMs + ongoingIdleMs);
         const bounds = getScheduleBoundsForMs(
           rawEndIdleMs > idleBounds.startMs ? Math.round((idleBounds.startMs + rawEndIdleMs) / 2) : currTime
@@ -1513,18 +1516,45 @@ export function computeUnifiedActivityMetrics(
         continue;
       }
       const idleBounds = getExplicitIdleBounds(it);
-      const explicitIdleMs = Number(it.duration_ms || (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) || (meta.idle_seconds ? meta.idle_seconds * 1000 : 0)) || 0;
+      const explicitIdleMs =
+        Number(
+          it.duration_ms ||
+            (meta.duration_seconds ? meta.duration_seconds * 1000 : 0) ||
+            (meta.idle_seconds ? meta.idle_seconds * 1000 : 0)
+        ) || 0;
       const idleStartMs = idleBounds.startMs;
-      let effectiveEnd = nextTime;
+
+      const nextIt = sorted[i + 1];
+      const nextActLower = (nextIt?.action || "").toLowerCase();
+      const nextCatLower = (nextIt?.category || "").toLowerCase();
+      const nextMeta = (nextIt?.metadata || {}) as Record<string, any>;
+      const nextIsIdleOrUnlock =
+        nextCatLower === "inactividad" ||
+        nextActLower.startsWith("sin actividad") ||
+        nextActLower.startsWith("pantalla bloqueada") ||
+        nextActLower.startsWith("inactividad") ||
+        nextMeta.reason === "unlock_screen";
+
+      // Si es un evento lock_screen espurio de 0s (emitido cuando getActiveWindow devolvió null en un ciclo)
+      // y el siguiente evento NO es inactividad continua ni unlock_screen, ignorarlo para no robar el tiempo de la siguiente app activa.
+      if (meta.reason === "lock_screen" && explicitIdleMs < 30000 && !nextIsIdleOrUnlock) {
+        continue;
+      }
+
+      let effectiveEnd = idleBounds.endMs;
       if (meta.idle_end && meta.source === "desktop") {
-        effectiveEnd =
-          nextTime > idleBounds.endMs && nextTime - idleBounds.endMs < 60000
-            ? nextTime
-            : idleBounds.endMs;
+        effectiveEnd = idleBounds.endMs;
       } else if (meta.source === "desktop" && explicitIdleMs > 0 && (meta.reason === "idle_completed" || meta.reason === "idle_timeout")) {
-        effectiveEnd = Math.max(nextTime, idleStartMs + explicitIdleMs);
-      } else {
+        effectiveEnd = nextIsIdleOrUnlock
+          ? Math.max(nextTime, idleStartMs + explicitIdleMs)
+          : idleStartMs + explicitIdleMs;
+      } else if (nextIsIdleOrUnlock) {
         effectiveEnd = Math.max(nextTime, currTime + Math.min(explicitIdleMs, rawGap));
+      } else {
+        const nextActiveDur =
+          Number(nextIt?.duration_ms || (nextMeta.duration_seconds ? nextMeta.duration_seconds * 1000 : 0)) || 0;
+        const nextActiveStart = nextActiveDur > 0 ? Math.max(currTime, nextTime - nextActiveDur) : nextTime;
+        effectiveEnd = Math.max(nextActiveStart, currTime + Math.min(explicitIdleMs, rawGap));
       }
 
       const midMs = effectiveEnd > idleStartMs ? Math.round((idleStartMs + effectiveEnd) / 2) : idleStartMs;
@@ -1880,6 +1910,77 @@ export function computeUnifiedActivityMetrics(
   // Cerrar bloque de inactividad final si quedó pendiente
   if (currentIdleBlock) {
     flushIdleBlock();
+  }
+
+  // ── DEDUPLICACIÓN DE LAGUNAS SUPERPUESTAS Y RECONOCIMIENTO AUTOMÁTICO DE ALMUERZO (NEXTIME / BLOQUEO DE MEDIODÍA) ──
+  if (detectedGaps.length > 1) {
+    const parseGapRange = (g: DetectedAbsenceGap) => {
+      const s = new Date(`${g.dateStr}T${g.startTimeVal}:00-06:00`).getTime();
+      const e = s + g.durationMs;
+      return { s, e };
+    };
+    const sortedGaps = [...detectedGaps].sort((a, b) => parseGapRange(a).s - parseGapRange(b).s);
+    const deduped: DetectedAbsenceGap[] = [];
+    for (const g of sortedGaps) {
+      const r = parseGapRange(g);
+      const prev = deduped[deduped.length - 1];
+      if (prev && prev.dateStr === g.dateStr) {
+        const pr = parseGapRange(prev);
+        // Si dos lagunas se traslapan o están a menos de 90s de distancia, fusionar sin duplicar minutos
+        if (r.s <= pr.e + 90_000) {
+          const mergedStart = Math.min(pr.s, r.s);
+          const mergedEnd = Math.max(pr.e, r.e);
+          const mergedDur = Math.max(prev.durationMs, g.durationMs, mergedEnd - mergedStart);
+          const dEnd = new Date(mergedStart + mergedDur);
+          prev.durationMs = mergedDur;
+          prev.minutes = Math.max(1, Math.round(mergedDur / 60000));
+          prev.endTime = formatTimeCR(dEnd.toISOString());
+          prev.endTimeVal = dEnd.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Costa_Rica" });
+          continue;
+        }
+      }
+      deduped.push({ ...g });
+    }
+    detectedGaps.length = 0;
+    detectedGaps.push(...deduped);
+    idleTotalMs = detectedGaps.reduce((acc, g) => acc + g.durationMs, 0);
+  }
+
+  // Si el colaborador marcó su salida/regreso de almuerzo en Nextime PRO o bloqueó la pantalla durante la franja de almuerzo (11:00 a 14:30)
+  // sin presionar el botón manual "Almuerzo" en la barra lateral, acreditar automáticamente hasta 60 min por día como Descanso (Almuerzo).
+  if ((opTimes["Descansos"] || 0) === 0 && breakJustifiedMs === 0 && detectedGaps.length > 0) {
+    const lunchAppliedByDay = new Map<string, number>();
+    const remainingAfterLunch: DetectedAbsenceGap[] = [];
+    const chronologicalForLunch = [...detectedGaps].sort((a, b) =>
+      (a.startTimeVal || "").localeCompare(b.startTimeVal || "")
+    );
+    for (const g of chronologicalForLunch) {
+      const [sh, sm] = (g.startTimeVal || "00:00").split(":").map(Number);
+      const startMinOfDay = sh * 60 + (sm || 0);
+      const isLunchWindow = startMinOfDay >= 11 * 60 && startMinOfDay <= 14 * 60 + 15;
+      const isScreenLockOrNextime =
+        /pantalla bloqueada|nextime|asistencia|ausencia/i.test(g.reason || "");
+      const usedTodayMs = lunchAppliedByDay.get(g.dateStr) || 0;
+      const maxLunchMs = 60 * 60 * 1000;
+      if (isLunchWindow && isScreenLockOrNextime && (g.minutes >= 25 || usedTodayMs > 0) && usedTodayMs < maxLunchMs) {
+        const creditMs = Math.min(g.durationMs, maxLunchMs - usedTodayMs);
+        opTimes["Descansos"] = (opTimes["Descansos"] || 0) + creditMs;
+        lunchAppliedByDay.set(g.dateStr, usedTodayMs + creditMs);
+        const leftoverMs = g.durationMs - creditMs;
+        if (leftoverMs >= TOLERANCE_GAP_MS && Math.floor(leftoverMs / 60000) > toleranceMin) {
+          remainingAfterLunch.push({
+            ...g,
+            durationMs: leftoverMs,
+            minutes: Math.round(leftoverMs / 60000),
+          });
+        }
+      } else {
+        remainingAfterLunch.push(g);
+      }
+    }
+    detectedGaps.length = 0;
+    detectedGaps.push(...remainingAfterLunch);
+    idleTotalMs = detectedGaps.reduce((acc, g) => acc + g.durationMs, 0);
   }
 
   // ── DETECCIÓN DE SALIDA ANTICIPADA AL CIERRE DE JORNADA ──

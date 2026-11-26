@@ -234,17 +234,33 @@ const COOLDOWN_RATE_MS = 20_000;       // 20 segundos para 429 (los límites por
 const COOLDOWN_ERROR_MS = 45_000;      // 45 segundos para 5xx / timeout / red
 
 export function isModelCooledDown(key: string): boolean {
-  return (modelCooldownUntil.get(key) ?? 0) > Date.now();
+  const now = Date.now();
+  if ((modelCooldownUntil.get(key) ?? 0) > now) return true;
+  const slashIdx = key.indexOf("/");
+  if (slashIdx > 0) {
+    const provKey = key.slice(0, slashIdx);
+    if ((modelCooldownUntil.get(`${provKey}/*`) ?? 0) > now) return true;
+  }
+  return false;
 }
 
 export function markModelFailure(key: string, status?: number): void {
+  const isAuthDead = status === 401 || status === 402 || status === 403;
   const ms =
-    status === 401 || status === 402 || status === 403 || status === 404 || status === 410
+    isAuthDead || status === 404 || status === 410
       ? COOLDOWN_DEAD_MS
       : status === 429
         ? COOLDOWN_RATE_MS
         : COOLDOWN_ERROR_MS;
-  modelCooldownUntil.set(key, Date.now() + ms);
+  const until = Date.now() + ms;
+  modelCooldownUntil.set(key, until);
+  if (isAuthDead) {
+    const slashIdx = key.indexOf("/");
+    if (slashIdx > 0) {
+      const provKey = key.slice(0, slashIdx);
+      modelCooldownUntil.set(`${provKey}/*`, until);
+    }
+  }
 }
 
 export function markModelSuccess(key: string): void {

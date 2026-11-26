@@ -1,4 +1,8 @@
 import { Buffer } from "node:buffer";
+import { execFile } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
   getProviderConfigs,
   isModelCooledDown,
@@ -6,6 +10,42 @@ import {
   markModelSuccess,
   discoverProviderModels,
 } from "@/lib/ai/config";
+
+async function extractVideoFrameJpeg(videoBuf: Buffer, timeoutMs = 6000): Promise<Buffer | null> {
+  const tmpDir = os.tmpdir();
+  const id = `sek_vid_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const inPath = path.join(tmpDir, `${id}.mp4`);
+  const outPath = path.join(tmpDir, `${id}.jpg`);
+  try {
+    await fs.promises.writeFile(inPath, videoBuf);
+    let ffmpegBin = "ffmpeg";
+    try {
+      const staticPath = require("ffmpeg-static");
+      if (staticPath && fs.existsSync(staticPath)) ffmpegBin = staticPath;
+    } catch {}
+
+    await new Promise<void>((resolve, reject) => {
+      execFile(
+        ffmpegBin,
+        ["-y", "-ss", "00:00:00.500", "-i", inPath, "-frames:v", "1", "-q:v", "3", outPath],
+        { timeout: timeoutMs, windowsHide: true },
+        (err) => (err ? reject(err) : resolve())
+      );
+    });
+
+    if (fs.existsSync(outPath)) {
+      const jpgBuf = await fs.promises.readFile(outPath);
+      if (jpgBuf.byteLength > 500) return jpgBuf;
+    }
+    return null;
+  } catch (e: any) {
+    console.warn("[vision] No se pudo extraer fotograma del video con ffmpeg:", e?.message);
+    return null;
+  } finally {
+    fs.promises.unlink(inPath).catch(() => {});
+    fs.promises.unlink(outPath).catch(() => {});
+  }
+}
 
 const VISION_CACHE_TTL_MS = 6 * 60 * 60_000;
 const VISION_CACHE_MAX = 200;
@@ -484,15 +524,17 @@ async function runAnalyzeMediaInternal(
 
     let prompt = "";
     if (isImage) {
-      prompt = `Eres ingeniero senior en seguridad electrónica (CCTV, NVR/DVR, control de acceso, redes, alarmas). ${userText ? `Consulta: "${userText}".` : ""}
+      prompt = `Eres ingeniero senior en seguridad electrónica (CCTV, NVR/DVR, control de acceso, redes, paneles y sensores de alarma como Hikvision AX PRO / AX Home). ${userText ? `Consulta del cliente: "${userText}".` : ""}
 
-Responde EXCLUSIVAMENTE en español, directo al grano y sin preámbulos ni razonamiento interno. Si es una factura, etiqueta o pantalla de software, escribe primero MARCA, MODELO EXACTO y TIPO DE EQUIPO (DVR/NVR/Cámara análoga o IP), seguido de textos/errores/menús literales visibles.
+REGLA CRÍTICA DE ENFOQUE: El cliente siempre fotografía un dispositivo electrónico, sensor/detector (por ejemplo un detector PIR redondo blanco de techo o pared, contacto magnético, sirena, panel), cámara, grabador, etiqueta o pantalla. Si la persona sostiene un dispositivo o carcasa en la mano y en el fondo o suelo se ven sus zapatos, tenis, pies, ropa, piso o muebles, IGNORA POR COMPLETO EL FONDO Y EL CALZADO y analiza ÚNICAMENTE el dispositivo electrónico que sostiene en la mano (forma, tapa, muescas o giro de apertura, LEDs o etiquetas). JAMÁS digas que el objeto es un zapato o zapatilla deportiva.
 
-1. EQUIPO: marca, modelo exacto, tipo de equipo (DVR/NVR/Cámara análoga/IP) y serie/MAC/firmware visibles.
-2. PANTALLA / ERRORES: transcribe texto literal, códigos de error, IPs, puertos, estado de cámaras/LEDs o menús visibles.
-3. DIAGNÓSTICO Y PASOS: causa probable y pasos técnicos puntuales por prioridad.`;
+Responde EXCLUSIVAMENTE en español, directo al grano y sin preámbulos ni razonamiento interno. Si es una factura, etiqueta o pantalla de software, escribe primero MARCA, MODELO EXACTO y TIPO DE EQUIPO, seguido de textos/errores/menús literales visibles.
+
+1. EQUIPO: marca, modelo exacto (si hay etiqueta visible), tipo de dispositivo (detector PIR de techo/pared, sensor de alarma, DVR/NVR, cámara, AP, etc.) y forma física / estado de la carcasa o tapa.
+2. PANTALLA / DETALLES VISIBLES: transcribe texto literal, etiquetas, códigos de error, IPs, puertos o indica cómo se observa la carcasa/base de montaje si el cliente pregunta cómo abrirlo o instalarlo.
+3. DIAGNÓSTICO Y PASOS: causa probable o instrucción física/técnica exacta (ej. apertura girando la base en sentido antihorario tipo bayoneta en detectores de techo, o pasos de configuración).`;
     } else if (isVideo) {
-      prompt = `Eres ingeniero senior en videovigilancia. ${userText ? `Consulta: "${userText}".` : ""} Analiza este video: equipos visibles, fallas, textos o errores en pantalla, diagnóstico técnico y solución.`;
+      prompt = `Eres ingeniero senior en seguridad electrónica y alarmas. ${userText ? `Consulta del cliente: "${userText}".` : ""} Analiza el dispositivo electrónico que el cliente muestra en las manos o en pantalla (ignora zapatos, piso o fondo): identifica qué tipo de dispositivo o sensor es, qué intenta hacer el cliente (ej. abrir la tapa/base, mostrar un LED o error) y da el procedimiento técnico exacto.`;
     } else if (isPdf) {
       prompt = `Eres experto técnico de Sekunet. ${userText ? `Consulta: "${userText}".` : ""} Extrae marcas, modelos, series, fallas y configuraciones críticas de este PDF.`;
     } else {
@@ -558,8 +600,12 @@ Responde EXCLUSIVAMENTE en español, directo al grano y sin preámbulos ni razon
       }
     }
 
-    // Video y PDF solo van por Google Gemini
-    if (!isImage) {
+    let effectiveMimeType = mimeType;
+    let effectiveBuf: Buffer = buf;
+    let effectiveIsImage = isImage;
+
+    // Video y PDF intentan primero Google Gemini; si es Video y Gemini no está disponible, extraemos un fotograma JPEG con ffmpeg para analizarlo con los modelos de visión activos
+    if (!effectiveIsImage) {
       for (const gt of googleTasks.slice(0, 4)) {
         const rem = totalDeadline - Date.now();
         if (rem < 2500) break;
@@ -569,10 +615,23 @@ Responde EXCLUSIVAMENTE en español, directo al grano y sin preámbulos ni razon
           return txt;
         }
       }
-      return null;
+      if (isVideo) {
+        const frameBuf = await extractVideoFrameJpeg(buf, Math.min(6000, Math.max(2500, totalDeadline - Date.now())));
+        if (frameBuf) {
+          effectiveBuf = frameBuf;
+          effectiveMimeType = "image/jpeg";
+          effectiveIsImage = true;
+          console.log(`[vision] 🎬 Fotograma JPEG extraído de video (${(frameBuf.byteLength / 1024).toFixed(1)} KB) para análisis multimodal`);
+        } else {
+          return null;
+        }
+      } else {
+        return null;
+      }
     }
 
-    const canInlineUpload = buf.byteLength <= 8 * 1024 * 1024;
+    const effectiveBase64 = effectiveBuf === buf ? base64Data : effectiveBuf.toString("base64");
+    const canInlineUpload = effectiveBuf.byteLength <= 8 * 1024 * 1024;
     const orTasks: CandidateTask[] = [];
     if (canInlineUpload && openrouterCfg && openrouterCfg.keys.length > 0) {
       const staticOrModels = [
@@ -603,10 +662,10 @@ Responde EXCLUSIVAMENTE en español, directo al grano y sin preámbulos ni razon
                 apiKey,
                 model: orModel,
                 prompt,
-                mimeType,
-                base64Data,
+                mimeType: effectiveMimeType,
+                base64Data: effectiveBase64,
                 label: `OpenRouter #${ki}`,
-                byteLength: buf.byteLength,
+                byteLength: effectiveBuf.byteLength,
                 timeoutMs,
                 outerSignal,
               }),
@@ -637,10 +696,10 @@ Responde EXCLUSIVAMENTE en español, directo al grano y sin preámbulos ni razon
                 apiKey,
                 model: cfModel,
                 prompt,
-                mimeType,
-                base64Data,
+                mimeType: effectiveMimeType,
+                base64Data: effectiveBase64,
                 label: `Cloudflare #${ki}`,
-                byteLength: buf.byteLength,
+                byteLength: effectiveBuf.byteLength,
                 timeoutMs,
                 outerSignal,
               }),
@@ -669,10 +728,10 @@ Responde EXCLUSIVAMENTE en español, directo al grano y sin preámbulos ni razon
                 apiKey,
                 model: nvModel,
                 prompt,
-                mimeType,
-                base64Data,
+                mimeType: effectiveMimeType,
+                base64Data: effectiveBase64,
                 label: `NVIDIA #${ki}`,
-                byteLength: buf.byteLength,
+                byteLength: effectiveBuf.byteLength,
                 timeoutMs,
                 outerSignal,
               }),

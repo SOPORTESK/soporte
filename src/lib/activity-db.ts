@@ -371,6 +371,7 @@ export async function hasActiveManualTask(agentEmail: string): Promise<boolean> 
     .select("id, action, category, metadata, created_at")
     .eq("agent_email", agentEmail)
     .gte("created_at", `${today}T00:00:00-06:00`)
+    .or("action.ilike.Inició:%,action.ilike.Inicio:%,action.ilike.Terminó:%,action.ilike.Termino:%")
     .order("created_at", { ascending: false })
     .limit(20);
 
