@@ -953,6 +953,7 @@ export function computeUnifiedActivityMetrics(
     endMs: number;
     category: string;
     label: string;
+    fromJustification?: boolean;
   }
   const manualIntervals: ActiveInterval[] = [];
   const handledEndIndices = new Set<number>();
@@ -1175,6 +1176,7 @@ export function computeUnifiedActivityMetrics(
           endMs: justEndMs,
           category: invCat,
           label: meta.reason || meta.task || invCat,
+          fromJustification: true,
         });
       }
     }
@@ -1205,7 +1207,7 @@ export function computeUnifiedActivityMetrics(
     for (const inv of manualIntervals) {
       const s = Math.max(gapStart, inv.startMs);
       const e = Math.min(gapEnd, inv.endMs);
-      if (e > s && (inv.category === "Justificación Manual" || inv.category === "Pausa Sanitaria" || inv.category === "Descansos")) {
+      if (e > s && inv.fromJustification) {
         usedOverlapJustificationMs += (e - s);
       }
     }
@@ -1507,7 +1509,7 @@ export function computeUnifiedActivityMetrics(
 
     // Caso C: Inactividad del sistema (solo se envía dentro del horario laboral; fuera de horario el inactivo no se envía a ningún proceso)
     if (opCategory === "Inactividad") {
-      if (meta.source === "web" && hasDesktopTelemetry && rawGap < TOLERANCE_GAP_MS) {
+      if (meta.source === "web" && hasDesktopTelemetry) {
         continue;
       }
       const idleBounds = getExplicitIdleBounds(it);
