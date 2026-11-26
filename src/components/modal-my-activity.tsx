@@ -240,9 +240,9 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
     try {
       const { start, end } = getDateRange(mode, cDate);
       const [resTimeline, resSchedule, resOvertime] = await Promise.all([
-        fetch(`/api/activity/timeline?agent=${encodeURIComponent(agentEmail)}&date=${start}&endDate=${end}`),
-        fetch(`/api/activity/schedule?agentEmail=${encodeURIComponent(agentEmail)}`),
-        fetch(`/api/activity/overtime?date=${start}&agent=${encodeURIComponent(agentEmail)}`),
+        fetch(`/api/activity/timeline?agent=${encodeURIComponent(agentEmail)}&date=${start}&endDate=${end}&force=true`, { cache: "no-store" }),
+        fetch(`/api/activity/schedule?agentEmail=${encodeURIComponent(agentEmail)}`, { cache: "no-store" }),
+        fetch(`/api/activity/overtime?date=${start}&agent=${encodeURIComponent(agentEmail)}`, { cache: "no-store" }),
       ]);
 
       const data = await resTimeline.json();
@@ -858,11 +858,11 @@ export function ModalMyActivity({ isOpen, onClose, agentEmail, agentName }: Prop
                     </div>
                     <div>
                       <p className="text-lg font-black text-slate-300 tabular-nums whitespace-nowrap tracking-tight font-mono">
-                        {officialIdleMs >= 60000 ? formatMinHours(officialIdleMs) : "0m"}
+                        {detectedLostMin >= 1 ? formatMinHours(detectedLostMin * 60000) : "0m"}
                       </p>
                       <div className="flex items-center justify-between mt-0.5 text-[9.5px]">
                         <span className="text-muted-foreground">Tol: {toleranceMin}m</span>
-                        {officialIdleMs >= 60000 && activeDetectedGaps.length > 0 && (
+                        {detectedLostMin >= 1 && activeDetectedGaps.length > 0 && (
                           <button
                             type="button"
                             onClick={() => setActiveTab("justificar")}

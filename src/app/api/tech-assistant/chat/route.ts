@@ -454,6 +454,7 @@ const SUCCESS_CONFIRMATION_PATTERNS = [
   /con\s+eso\s+(qued[oó]|se\s+arregl[oó]|se\s+solucion[oó]|funcion[oó]|sirvi[oó])/i,
   /(era\s+eso|eso\s+era|ya\s+quedo|ya\s+quedó|listo\s+muchas\s+gracias|listo\s+gracias|perfecto\s+gracias|excelente\s+gracias)/i,
   /(much[ií]simas\s+gracias|mil\s+gracias|muy\s+amable\s+gracias|agradezco\s+mucho|le\s+agradezco\s+la\s+ayuda|agradecido)/i,
+  /\b(?:muchas\s+gracias|pura\s+vida|excelente|perfecto|buen[ií]simo|listo\s+gracias|gracias\s+por\s+la\s+ayuda|entendido\s+gracias|comprendo)\b/i,
   /ya\s+pude\s+(ingresar|entrar|configurar|conectar|verlo|activarlo|resetear)/i,
   /me\s+sirvi[oó]\s+mucho|me\s+ayud[oó]\s+bastante/i,
 ];
@@ -839,18 +840,30 @@ async function getFullKnowledgeAndCasesIndex(serviceClient: any): Promise<{
   const selectCols =
     "id, title, marca, modelo, problema, resolucion, assigned_to, closed_at, cliente, histcliente, histtecnico, es_test, calificacion";
 
-  const [batch1, agentsRes, chunksRes1] = await Promise.all([
+  const [batch1, batch2, batch3, agentsRes, chunksRes1] = await Promise.all([
     serviceClient
       .from("sek_cases")
       .select(selectCols)
       .in("estado", ["cerrado", "resuelto"])
       .order("closed_at", { ascending: false })
-      .limit(600),
+      .range(0, 999),
+    serviceClient
+      .from("sek_cases")
+      .select(selectCols)
+      .in("estado", ["cerrado", "resuelto"])
+      .order("closed_at", { ascending: false })
+      .range(1000, 1999),
+    serviceClient
+      .from("sek_cases")
+      .select(selectCols)
+      .in("estado", ["cerrado", "resuelto"])
+      .order("closed_at", { ascending: false })
+      .range(2000, 2499),
     serviceClient.from("sek_agent_config").select("email, nombre, apellido"),
     serviceClient.from("sek_doc_chunks").select("id, doc_name, content").range(0, 499),
   ]);
 
-  // Paginar sek_doc_chunks en lotes de 500 (hasta 2500 chunks) dentro de la caché de 5 min para no omitir manuales recientes
+  // Paginar sek_doc_chunks en lotes de 500 (hasta 2500 chunks) dentro de la caché en memoria
   let allDocChunks: any[] = Array.isArray(chunksRes1.data) ? [...chunksRes1.data] : [];
   if (allDocChunks.length === 500) {
     for (let offset = 500; offset < 2500; offset += 500) {
@@ -875,7 +888,7 @@ async function getFullKnowledgeAndCasesIndex(serviceClient: any): Promise<{
     }
   }
 
-  const allClosedCases = [...(batch1.data || [])];
+  const allClosedCases = [...(batch1.data || []), ...(batch2.data || []), ...(batch3.data || [])];
   const seenCaseIds = new Set<string>();
   const precedents: IndexedPrecedent[] = [];
 
@@ -904,11 +917,14 @@ async function getFullKnowledgeAndCasesIndex(serviceClient: any): Promise<{
     const clientTexts = hc
       .filter((m: any) => m && m.content && typeof m.content === "string")
       .map((m: any) => String(m.content).trim());
-    const clientFullText = clientTexts.join(" ");
+    const clientLast2 = clientTexts.slice(-2).join(" ");
     const clientTail = clientTexts.slice(-5).join(" ");
 
-    // Descartar si el cliente reportó fallo o queja en la conversación
-    if (FAILURE_OR_COMPLAINT_PATTERNS.some((re) => re.test(clientFullText))) {
+    // Descartar únicamente si los mensajes finales del cliente reflejan falla/queja sin confirmación posterior de éxito
+    if (
+      FAILURE_OR_COMPLAINT_PATTERNS.some((re) => re.test(clientLast2)) &&
+      !SUCCESS_CONFIRMATION_PATTERNS.some((re) => re.test(clientLast2))
+    ) {
       continue;
     }
 
@@ -1695,10 +1711,12 @@ export async function POST(req: NextRequest) {
     const caseBrands = KNOWN_BRANDS.filter((b) => fullContextCorpus.includes(b));
     const activeBrands = userBrands.length > 0 ? userBrands : caseBrands;
 
-    // Inferir fabricante por línea de producto o app (AX-Pro / Hik-Connect = Hikvision, DMSS = Dahua, BioTime = ZKTeco, eKit = Huawei)
+    // Inferir fabricante por línea de producto o app (AX-Pro / AX Home / Hik-Connect = Hikvision, DMSS = Dahua, BioTime = ZKTeco, eKit = Huawei)
     const PRODUCT_LINE_HINTS: { re: RegExp; brand: string; line: string }[] = [
+      { re: /\bax[\s-]?home\b|\baxhome\b/i, brand: "hikvision", line: "AX Home" },
       { re: /\bax[\s-]?pro\b/i, brand: "hikvision", line: "AX PRO" },
       { re: /\bax[\s-]?hub\b/i, brand: "hikvision", line: "AX Hub" },
+      { re: /\bds-pdp\w*|\bds-pwa\w*|\bds-pdmc\w*|\bds-pk\d/i, brand: "hikvision", line: "AX PRO / AX Home" },
       { re: /hik[\s-]?connect/i, brand: "hikvision", line: "Hik-Connect" },
       { re: /\bivms[\s-]?4200\b/i, brand: "hikvision", line: "iVMS-4200" },
       { re: /hikcentral/i, brand: "hikvision", line: "HikCentral" },
@@ -1714,10 +1732,13 @@ export async function POST(req: NextRequest) {
       { re: /routeros|winbox|\brb\d{3,4}|\bccr\d/i, brand: "mikrotik", line: "RouterOS" },
     ];
     const productHint = PRODUCT_LINE_HINTS.find((h) => h.re.test(fullContextCorpus));
+    const caseBrandRaw = targetCase?.marca ? String(targetCase.marca).toLowerCase().trim() : "";
+    const caseBrandValid = KNOWN_BRANDS.includes(caseBrandRaw) ? caseBrandRaw : "";
     const primaryBrand =
       activeBrands[0] ||
-      (targetCase?.marca ? String(targetCase.marca).toLowerCase().trim() : "") ||
+      caseBrandValid ||
       productHint?.brand ||
+      caseBrandRaw ||
       "";
     const productLine = productHint?.line || "";
 
@@ -2208,9 +2229,13 @@ export async function POST(req: NextRequest) {
           if (hardwareModelsForWeb.length > 0) {
             const mUpper = hardwareModelsForWeb.map((m) => `"${m.toUpperCase()}"`);
             const modelClause = mUpper.length > 1 ? `(${mUpper.join(" OR ")})` : mUpper[0];
+            const cleanLine = productLine ? productLine.split("/")[0].trim() : "";
+            const lineClause =
+              cleanLine && !enFeat.toLowerCase().includes(cleanLine.toLowerCase()) ? `"${cleanLine}"` : "";
+            const factTail = [lineClause, enFeat || (!lineClause ? "specifications" : "")].filter(Boolean).join(" ");
             officialFactQuery = officialSite
-              ? `site:${officialSite} ${modelClause} ${enFeat || "specifications"}`.trim()
-              : `${primaryBrand} ${modelClause} ${enFeat || "specifications"} "not supported" OR "supported" OR datasheet`.trim();
+              ? `site:${officialSite} ${modelClause} ${factTail}`.trim()
+              : `${primaryBrand} ${modelClause} ${factTail} "not supported" OR "supported" OR datasheet`.trim();
           }
 
           const datasheetManualQuery =
@@ -2564,17 +2589,9 @@ REGLA OBLIGATORIA DE EVIDENCIA:
     const clipBlock = (s: string, maxChars: number): string =>
       s.length <= maxChars ? s : `${s.slice(0, maxChars).trimEnd()}...`;
 
-    const isFeatureSupportQuestion =
-      isConsultationCase ||
-      /\b(?:mesh|wds|compatible|compatibilidad|soporta|se\s+puede|en\s+mesh|api|sdk|isapi)\b/i.test(
-        primaryTopicText
-      );
-    const effectiveHistoricalPrecedents =
-      isFeatureSupportQuestion && webContext ? "" : historicalPrecedents;
-
     const ragPromptBlock = ragContext ? `\n\nMANUALES OFICIALES EN BASE DE CONOCIMIENTO SEKUNET (RAG):\n${clipBlock(ragContext, 1400)}` : "";
-    const precedentsPromptBlock = effectiveHistoricalPrecedents
-      ? `\n\nPRECEDENTES HISTÓRICOS REALES RESUELTOS CON ÉXITO Y CONFIRMACIÓN DEL CLIENTE (SEKUNET):\n${clipBlock(effectiveHistoricalPrecedents, 1800)}`
+    const precedentsPromptBlock = historicalPrecedents
+      ? `\n\nPRECEDENTES HISTÓRICOS REALES RESUELTOS CON ÉXITO Y CONFIRMACIÓN DEL CLIENTE (SEKUNET):\n${clipBlock(historicalPrecedents, 1800)}`
       : "";
     const webPromptBlock = webContext
       ? `\n\nBÚSQUEDA WEB EN VIVO (DOCUMENTACIÓN OFICIAL DEL FABRICANTE, FICHAS TÉCNICAS Y FOROS):\n${clipBlock(webContext, 5500)}`
@@ -2726,11 +2743,14 @@ Lee la conversación completa en <<<CONVERSACION_CASO_ACTUAL>>> desde el inicio 
 - Prohibido adivinar especificaciones, puertos, nombres de menús o procedimientos: si algún dato no está confirmado con 100% de certeza, dilo con honestidad al técnico en lugar de rellenar o suponer.
 - En este chat privado del técnico, los tutoriales, fichas técnicas PDF, manuales, videos de YouTube y foros verificados en [W#] se muestran automáticamente debajo como tarjetas con vista previa: cítalos o descríbelos brevemente sin duplicar largas listas de URLs en el texto.
 
-0.6 REGLA ESTRICTA DE LOS 3 ESTADOS PARA FAMILIAS, FUNCIONES Y COMPATIBILIDAD (CERO SUPOSICIONES):
+0.6 REGLA ESTRICTA DE LOS 3 ESTADOS + PROACTIVIDAD RESOLUTIVA (CERO SUPOSICIONES, CERO RESPUESTAS SECAS):
 - ESTADO 1 — CONFIRMADO QUE SÍ SOPORTA: Solo afirma que un modelo soporta una función o enlace si una fuente oficial del fabricante ([W#] o [M#]) confirma explícitamente esa capacidad para ese modelo exacto.
 - ESTADO 2 — CONFIRMADO QUE NO SOPORTA: Si cualquier documento oficial del fabricante en [W#] o [M#] indica explícitamente que ese modelo NO soporta la función (por ejemplo: "not supported by...", "do not support...", "The Mesh function is not supported by the following AP models: AP160 and AP361"), DEBES responder NO de forma directa citando la restricción real del fabricante (PROHIBIDO inventar pasos para configurar una función declarada no soportada, y PROHIBIDO inventar razones falsas como familias equivocadas). En cambio, indica la alternativa real soportada (ej. conexión cableada Ethernet/PoE y gestión en la app oficial, o usar modelos que sí incluyan la función).
-- ESTADO 3 — SIN CONFIRMACIÓN OFICIAL: Si las fuentes oficiales recuperadas NO confirman ni niegan explícitamente la función para ese modelo exacto, PROHIBIDO asumir que SÍ funciona y PROHIBIDO inventar que NO funciona. Declara con honestidad que no existe confirmación oficial suficiente para asegurar compatibilidad y qué documento oficial debe verificarse antes de confirmarle al cliente.
-- Siempre verifica el nombre oficial y familia exacta de CADA modelo en [W#]/[M#] (por ejemplo, tanto el AP361 como el AP160 son Huawei eKitEngine; jamás llames AirEngine a un AP eKitEngine).
+- ESTADO 3 — SIN CONFIRMACIÓN OFICIAL: Si las fuentes oficiales recuperadas NO confirman ni niegan explícitamente la función para ese modelo exacto, PROHIBIDO asumir que SÍ funciona y PROHIBIDO inventar que NO funciona. Declara con honestidad qué falta confirmar y entrega la verificación concreta (ej. revisar versión de firmware del panel AX Home / hoja de compatibilidad / captura del error) para resolver el caso.
+- PROACTIVIDAD RESOLUTIVA (ESENCIA DE UN AGENTE DE SOPORTE): Nunca te limites a un "Sí" o "No" seco y frío. Siempre ayuda activamente a resolver la necesidad de fondo del cliente:
+  • Si no es compatible o dice "no es compatible" (ej. detector en AX Home), indica qué revisar para descartar requisitos previos verificables (ej. versión de firmware del panel o modelo exacto del hub si aún no se conoce) y cuál es la salida práctica o alternativa de instalación/equipo para lograr lo que necesita.
+  • Si requiere configuración, da el paso a paso accionable o la pregunta exacta de diagnóstico para destrabar al técnico y al cliente en el siguiente mensaje.
+- Siempre verifica el nombre oficial y familia exacta de CADA modelo en [W#]/[M#] (por ejemplo, tanto el AP361 como el AP160 son Huawei eKitEngine; jamás llames AirEngine a un AP eKitEngine; y AX Home es un panel/línea de alarma Hikvision distinta de la app Hik-Connect).
 
 1. MÁXIMA PRIORIDAD A RESOLVER LA AVERÍA: El técnico te consulta para encontrar la SOLUCIÓN EXACTA. Fundamenta tu respuesta en la conversación abierta real, las evidencias adjuntas, las soluciones comprobadas en casos previos del mismo cliente o taller cuando realmente apliquen, y procedimientos técnicos exactos de la marca.
 2. FOCO Y DESTINATARIO: Tu respuesta va dirigida ÚNICA Y EXCLUSIVAMENTE al caso y cliente abierto en pantalla. Nunca menciones nombres de clientes pasados.
@@ -2768,7 +2788,8 @@ PAUTAS DE REDACCIÓN DE LA RESPUESTA PARA EL CLIENTE:
 - Si le indicas pasos o pruebas al cliente, usa viñetas sencillas con punto ("• ") directas y numeradas si es secuencial, con instrucciones fáciles de seguir para alguien no técnico.
 - NUNCA uses jerga interna del taller ni menciones precedentes de otros clientes, manuales internos ni códigos de caso de Sekunet.
 - PROHIBIDO incluir enlaces (https://...) inventados o no verificados en el mensaje al cliente. Si incluyes un enlace oficial, debe ser únicamente uno verificado del contexto (ej. https://tpp.hikvision.com/ o https://www.hikvision.com/es-la/support/download/); si no tienes enlace verificado, explica el paso sin poner URLs.
-- PROHIBIDO afirmar familias de producto, compatibilidad o incompatibilidades ("sí se puede configurar Mesh", "solo funciona con el mismo modelo", "protocolo distinto", etc.) inventadas de memoria: aplica estrictamente los 3 Estados. Si [W#]/[M#] confirma que el fabricante NO soporta la función (como Huawei AP160 y AP361 que NO soportan Mesh según su documentación oficial), indícale con claridad al cliente que NO es compatible y recomienda conexión cableada Ethernet/PoE o modelos con soporte Mesh. Si falta confirmación oficial, dilo con honestidad sin prometer que funcionará.
+- PROHIBIDO afirmar familias de producto, compatibilidad o incompatibilidades ("sí se puede configurar Mesh", "solo funciona con el mismo modelo", "protocolo distinto", etc.) inventadas de memoria: aplica estrictamente los 3 Estados. Si [W#]/[M#] confirma que el fabricante NO soporta la función (como Huawei AP160 y AP361 que NO soportan Mesh según su documentación oficial), indícale con claridad al cliente que NO es compatible y acompáñalo de una vez con la alternativa práctica viable (conexión cableada Ethernet/PoE o cambio a modelos que sí soporten la función). Si falta confirmación oficial, dilo con honestidad y pídele el dato/comprobación puntual que necesitamos (ej. modelo/firmware exacto del panel) sin dejarlo tirado con un "no" seco.
+- TONO CONSULTIVO Y RESOLUTIVO: Aunque la respuesta de compatibilidad sea negativa o falte un dato, redacta siempre con calidez y vocación de servicio, guiando al cliente hacia la mejor solución práctica para su proyecto.
 - CERO ASTERISCOS: Redacte en texto plano limpio sin asteriscos, sin encabezados con # y con viñetas decentes ("• ").
 - NO INCLUYAS la línea de fuentes consultadas en este texto, ya que este mensaje va dirigido exclusivamente al cliente final por WhatsApp.
 - DEVUELVA ÚNICAMENTE el texto que el técnico debe enviarle al cliente. No incluya introducciones como "Aquí tiene la respuesta:" ni notas dirigidas al técnico.`;
@@ -2870,7 +2891,7 @@ REGLA DE RESPUESTA:
           `EVIDENCIA VERIFICADA:\n${[
             webContext ? clipBlock(webContext, 5200) : "Sin resultados web",
             ragContext ? clipBlock(ragContext, 1000) : "",
-            effectiveHistoricalPrecedents ? clipBlock(effectiveHistoricalPrecedents, 800) : "",
+            historicalPrecedents ? clipBlock(historicalPrecedents, 800) : "",
           ]
             .filter(Boolean)
             .join("\n\n")}`,

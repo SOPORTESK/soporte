@@ -338,7 +338,10 @@ export async function POST(
     }
   }
 
-  const updatePayload: Record<string, any> = { [historyType]: updatedHistory };
+  const updatePayload: Record<string, any> = {
+    [historyType]: updatedHistory,
+    updated_at: new Date().toISOString(),
+  };
   if (otherUpdated) {
     updatePayload[otherHistoryType] = updatedOtherHistory;
   }

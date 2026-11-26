@@ -1235,171 +1235,89 @@ export function ChatView({
       pollTickCount++;
       lastPollAt = Date.now();
       try {
-        const mergedOpenIds = Array.from(
+        const allKnownGroupIds = Array.from(
           new Set([
+            String(targetId),
             ...(initialCaseRef.current._group?.openCaseIds || []),
             ...(sekCaseRef.current._group?.openCaseIds || []),
-          ].map(String))
-        );
-        const fallbackGroupIds = Array.from(
-          new Set([
             ...(initialCaseRef.current._group?.caseIds || []),
             ...(sekCaseRef.current._group?.caseIds || []),
           ].map(String))
+        ).slice(-6);
+
+        const curPhoneRaw = String(
+          sekCaseRef.current?.customer_phone ||
+          (sekCaseRef.current?.cliente as any)?.telefono ||
+          ""
         );
-        let pollGroupIds = mergedOpenIds.length
-          ? mergedOpenIds.slice(-4)
-          : (fallbackGroupIds.length ? fallbackGroupIds.slice(-4) : [targetId]);
-        if (isGrouped && pollGroupIds.length) {
-          // Descubrir periódicamente (o cuando es forzado) posibles casos nuevos del mismo teléfono
-          if (forceFullFetch || pollTickCount % 4 === 1) {
-            const curPhoneRaw = String(
-              sekCaseRef.current?.customer_phone ||
-              (sekCaseRef.current?.cliente as any)?.telefono ||
-              ""
-            );
-            const curDigits = curPhoneRaw.split("@")[0].replace(/[^0-9]/g, "");
-            if (curDigits.length >= 8) {
-              const { data: activeSiblings } = await supabase
-                .from("sek_cases")
-                .select("id")
-                .ilike("customer_phone", `%${curDigits.slice(-8)}%`)
-                .neq("canal", "simulator")
-                .neq("es_test", true)
-                .not("estado", "in", "(cerrado,resuelto)")
-                .order("created_at", { ascending: false })
-                .limit(5);
-              if (Array.isArray(activeSiblings) && activeSiblings.length > 0 && mounted) {
-                const knownSet = new Set(pollGroupIds.map(String));
-                let discoveredNew = false;
-                for (const sib of activeSiblings) {
-                  const sid = String((sib as any).id);
-                  if (!knownSet.has(sid)) {
-                    knownSet.add(sid);
-                    discoveredNew = true;
-                    for (const g of [sekCaseRef.current?._group, initialCaseRef.current?._group]) {
-                      if (!g) continue;
-                      if (Array.isArray(g.caseIds) && !g.caseIds.some((id: any) => String(id) === sid)) {
-                        g.caseIds = [...g.caseIds, sid];
-                      }
-                      if (Array.isArray(g.openCaseIds) && !g.openCaseIds.some((id: any) => String(id) === sid)) {
-                        g.openCaseIds = [...g.openCaseIds, sid];
-                      }
-                    }
-                  }
-                }
-                if (discoveredNew) {
-                  pollGroupIds = Array.from(knownSet).slice(-5);
-                }
-              }
+        const curDigits = curPhoneRaw.split("@")[0].replace(/[^0-9]/g, "");
+
+        const prevHash = forceFullFetch
+          ? ""
+          : (lastGroupMetaHash || (sekCaseRef.current as any)?._groupMetaHash || "");
+
+        const params = new URLSearchParams({
+          mode: "case",
+          ids: allKnownGroupIds.join(","),
+          force: forceFullFetch ? "1" : "0",
+        });
+        if (curDigits.length >= 8) params.set("phone", curDigits.slice(-8));
+        if (prevHash) params.set("hash", prevHash);
+
+        const syncRes = await fetch(`/api/cases/live-sync?${params.toString()}`, {
+          cache: "no-store",
+        });
+        if (!syncRes.ok) return;
+        const syncData = await syncRes.json().catch(() => null);
+        if (!syncData?.ok || !mounted) return;
+
+        if (!syncData.changed || !Array.isArray(syncData.cases) || syncData.cases.length === 0) {
+          if (syncData.hash) {
+            lastGroupMetaHash = syncData.hash;
+            if (sekCaseRef.current) (sekCaseRef.current as any)._groupMetaHash = syncData.hash;
+          }
+          return;
+        }
+
+        const freshRows = syncData.cases as any[];
+        const freshHash = String(syncData.hash || "");
+        lastGroupMetaHash = freshHash;
+
+        // Sincronizar nuevos IDs descubiertos en grupo si llegaron
+        for (const r of freshRows) {
+          const sid = String(r.id);
+          for (const g of [sekCaseRef.current?._group, initialCaseRef.current?._group]) {
+            if (!g) continue;
+            if (Array.isArray(g.caseIds) && !g.caseIds.some((id: any) => String(id) === sid)) {
+              g.caseIds = [...g.caseIds, sid];
+            }
+            if (Array.isArray(g.openCaseIds) && !g.openCaseIds.some((id: any) => String(id) === sid)) {
+              g.openCaseIds = [...g.openCaseIds, sid];
             }
           }
+        }
 
-          // Chequeo ultraliviano de metadatos si no es forzado (~120 bytes en vez de megabytes)
-          if (!forceFullFetch) {
-            const { data: meta, error: metaErr } = await supabase
-              .from("sek_cases")
-              .select("id,last_message_at,updated_at,estado,assigned_to,last_message_preview")
-              .in("id", pollGroupIds);
-            if (metaErr || !meta) return;
-            if (mounted) {
-              const metaHash = meta
-                .map((m: any) =>
-                  `${m.id}:${toEpochMs(m.last_message_at)}:${toEpochMs(m.updated_at)}:${m.estado || ""}:${m.assigned_to || ""}:${String(m.last_message_preview || "").slice(0, 60)}`
-                )
-                .sort()
-                .join("|");
-              const prevHash = lastGroupMetaHash || (sekCaseRef.current as any)?._groupMetaHash;
-              if (prevHash && prevHash === metaHash) {
-                // Sin cambios: evitar descargar historial repetido (cero Egress)
-                return;
-              }
-              if (!prevHash && historyLoadedRef.current) {
-                const curLastMsg = toEpochMs(sekCaseRef.current?.last_message_at);
-                const curUpdated = toEpochMs((sekCaseRef.current as any)?.updated_at);
-                const curEstado = String(sekCaseRef.current?.estado || "");
-                const curAssigned = String(sekCaseRef.current?.assigned_to || "");
-                const hasDiffOnServer = meta.some((m: any) =>
-                  toEpochMs(m.last_message_at) !== curLastMsg ||
-                  (curUpdated > 0 && toEpochMs(m.updated_at) !== curUpdated) ||
-                  String(m.estado || "") !== curEstado ||
-                  String(m.assigned_to || "") !== curAssigned
-                );
-                lastGroupMetaHash = metaHash;
-                (sekCaseRef.current as any)._groupMetaHash = metaHash;
-                if (!hasDiffOnServer) {
-                  return;
-                }
-              } else {
-                lastGroupMetaHash = metaHash;
-                (sekCaseRef.current as any)._groupMetaHash = metaHash;
-              }
-            }
-          }
+        if (isGrouped || freshRows.length > 1) {
+          const baseGroupCase = sekCaseRef.current._group
+            ? sekCaseRef.current
+            : (initialCaseRef.current._group ? initialCaseRef.current : sekCaseRef.current);
+          const merged = buildMergedCase(baseGroupCase, freshRows as SekCase[]);
+          (merged as any)._groupMetaHash = freshHash;
+          setSekCase(merged);
+          caseHistoryCache.set(cacheKey, { sekCase: merged, timestamp: Date.now() });
 
-          // Recargar el historial de los casos activos cuando hubo cambio real o es forzado
-          const { data, error: dataErr } = await supabase
-            .from("sek_cases")
-            .select("id,estado,canal,cliente,assigned_to,customer_phone,created_at,updated_at,last_message_at,last_message_preview,histcliente,histtecnico,marca,modelo,problema,resolucion,title")
-            .in("id", pollGroupIds);
-          if (dataErr) {
-            console.error(`[chat-view] grouped polling error:`, dataErr);
-            return;
-          }
-          if (data && mounted) {
-            const freshHash = data
-              .map((m: any) =>
-                `${m.id}:${toEpochMs(m.last_message_at)}:${toEpochMs(m.updated_at)}:${m.estado || ""}:${m.assigned_to || ""}:${String(m.last_message_preview || "").slice(0, 60)}`
-              )
-              .sort()
-              .join("|");
-            lastGroupMetaHash = freshHash;
-            const merged = buildMergedCase(sekCaseRef.current._group ? sekCaseRef.current : initialCaseRef.current, data as SekCase[]);
-            (merged as any)._groupMetaHash = freshHash;
-            setSekCase(merged);
-            caseHistoryCache.set(cacheKey, { sekCase: merged, timestamp: Date.now() });
-
-            if (typeof document !== "undefined" && document.visibilityState === "visible") {
-              for (const row of data as any[]) {
-                const hasUnread = Array.isArray(row.histcliente) && row.histcliente.some((m: any) => !m.read_at);
-                if (hasUnread) {
-                  supabase.rpc("mark_histcliente_read", { p_case_id: String(row.id), p_reader_email: agentEmail || undefined }).then(() => {}, () => {});
-                }
+          if (typeof document !== "undefined" && document.visibilityState === "visible") {
+            for (const row of freshRows) {
+              const hasUnread = Array.isArray(row.histcliente) && row.histcliente.some((m: any) => !m.read_at);
+              if (hasUnread) {
+                supabase.rpc("mark_histcliente_read", { p_case_id: String(row.id), p_reader_email: agentEmail || undefined }).then(() => {}, () => {});
               }
             }
           }
           return;
         }
 
-        // Chat individual: chequeo ultraliviano de metadatos (~100 bytes) si no es forzado
-        if (!forceFullFetch) {
-          const { data: meta, error: metaErr } = await supabase
-            .from("sek_cases")
-            .select("id,estado,assigned_to,last_message_at,updated_at,last_message_preview")
-            .eq("id", targetId)
-            .maybeSingle();
-          if (metaErr || !meta) return;
-
-          const cur = sekCaseRef.current;
-          const isIdentical =
-            toEpochMs(cur.last_message_at) === toEpochMs(meta.last_message_at) &&
-            cur.estado === meta.estado &&
-            cur.assigned_to === meta.assigned_to &&
-            toEpochMs((cur as any).updated_at) === toEpochMs(meta.updated_at) &&
-            String(cur.last_message_preview || "") === String((meta as any).last_message_preview || "");
-
-          if (isIdentical) {
-            // Nada cambió en la base de datos: evitar descargar histcliente/histtecnico (cero Egress)
-            return;
-          }
-        }
-
-        const { data, error } = await supabase
-          .from("sek_cases")
-          .select("id,estado,assigned_to,last_message_at,last_message_preview,histcliente,histtecnico,marca,modelo,problema,resolucion,title,cliente,updated_at")
-          .eq("id", targetId)
-          .maybeSingle();
-        if (error) { console.error(`[chat-view] polling error:`, error); return; }
+        const data = freshRows[0];
         if (data && mounted) {
           setSekCase(prev => {
             const update: any = {
@@ -1408,36 +1326,29 @@ export function ChatView({
               last_message_at: data.last_message_at,
               last_message_preview: data.last_message_preview,
               updated_at: data.updated_at,
-              ...(data.marca ? { marca: data.marca } : {}),
-              ...(data.modelo ? { modelo: data.modelo } : {}),
-              ...(data.problema ? { problema: data.problema } : {}),
+              unread_count: data.unread_count,
+              _groupMetaHash: freshHash,
+              ...(data.marca !== undefined ? { marca: data.marca } : {}),
+              ...(data.modelo !== undefined ? { modelo: data.modelo } : {}),
+              ...(data.problema !== undefined ? { problema: data.problema } : {}),
+              ...(data.resolucion !== undefined ? { resolucion: data.resolucion } : {}),
               ...(data.title ? { title: data.title } : {}),
               ...(data.cliente ? { cliente: data.cliente } : {}),
             };
-            // No reemplazar historial real por arrays vacíos recibidos en polling
             if (!(Array.isArray(data.histcliente) && data.histcliente.length === 0 && Array.isArray(prev.histcliente) && prev.histcliente.length > 0)) {
               update.histcliente = data.histcliente;
             }
             if (!(Array.isArray(data.histtecnico) && data.histtecnico.length === 0 && Array.isArray(prev.histtecnico) && prev.histtecnico.length > 0)) {
               update.histtecnico = data.histtecnico;
             }
-            const hashOf = (c: any) => {
-              const hc = c.histcliente || [], ht = c.histtecnico || [];
-              return hc.length + "|" + ht.length + "|" +
-                (hc.length ? (hc[hc.length-1]?.time || "") + (hc[hc.length-1]?.read_at || "") : "") + "|" +
-                (ht.length ? (ht[ht.length-1]?.time || "") + (ht[ht.length-1]?.read_at || "") : "") + "|" +
-                (c.estado || "") + "|" + (c.assigned_to || "");
-            };
             const merged = { ...prev, ...update };
-            if (hashOf(prev) === hashOf(merged)) return prev;
             caseHistoryCache.set(cacheKey, { sekCase: merged, timestamp: Date.now() });
             return merged;
           });
-          // Marcar mensajes del cliente sin read_at como leídos (solo si hay mensajes sin leer)
           const hasUnread = Array.isArray(data.histcliente) && data.histcliente.some((m: any) => !m.read_at);
-          if (hasUnread) {
+          if (hasUnread && typeof document !== "undefined" && document.visibilityState === "visible") {
             try {
-              await supabase.rpc("mark_histcliente_read", { p_case_id: String(targetId), p_reader_email: agentEmail || undefined });
+              await supabase.rpc("mark_histcliente_read", { p_case_id: String(data.id || targetId), p_reader_email: agentEmail || undefined });
             } catch (err: any) {
               console.error("[chat-view] mark_histcliente_read error:", err?.message || err);
             }
@@ -1660,11 +1571,11 @@ export function ChatView({
       .subscribe();
     presenceChannelRef.current = presenceCh;
 
-    /* Polling activo de respaldo cada 6s mientras la pestaña está visible (chequeo liviano de ~120 bytes) */
+    /* Polling activo de respaldo vía servidor cada 3s mientras la pestaña está visible */
     const poll = setInterval(() => {
       if (!isTabVisible()) return;
       doPoll();
-    }, 6000);
+    }, 3000);
 
     /* Refetch al volver a la pestaña (pasa por el chequeo liviano de ~120 bytes) */
     const handleVisibility = () => {

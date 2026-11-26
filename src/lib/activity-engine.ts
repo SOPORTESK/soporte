@@ -1517,7 +1517,10 @@ export function computeUnifiedActivityMetrics(
       const idleStartMs = idleBounds.startMs;
       let effectiveEnd = nextTime;
       if (meta.idle_end && meta.source === "desktop") {
-        effectiveEnd = Math.max(idleBounds.endMs, nextTime);
+        effectiveEnd =
+          nextTime > idleBounds.endMs && nextTime - idleBounds.endMs < 60000
+            ? nextTime
+            : idleBounds.endMs;
       } else if (meta.source === "desktop" && explicitIdleMs > 0 && (meta.reason === "idle_completed" || meta.reason === "idle_timeout")) {
         effectiveEnd = Math.max(nextTime, idleStartMs + explicitIdleMs);
       } else {

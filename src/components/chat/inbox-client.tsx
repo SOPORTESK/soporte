@@ -183,7 +183,7 @@ const BASE_TITLE = "Chat Sekunet - Atención al cliente";
 
 // Campos para la lista del inbox (consulta ligera sin historiales pesados).
 // Las notificaciones de mensajes nuevos usan unread_count y last_message_at.
-const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone,es_test";
+const CASE_LIST_FIELDS = "id,estado,canal,cliente,assigned_to,last_message_at,last_message_preview,unread_count,created_at,updated_at,title,prioridad,tags,customer_phone,es_test,marca,modelo";
 
 const toEpochMs = (v: unknown): number => {
   if (!v) return 0;
@@ -1079,38 +1079,16 @@ export function InboxClient({
       // 1. Si la pestaña está oculta en segundo plano y no es forzado, no ejecutar (0 bytes en segundo plano)
       if (typeof document !== "undefined" && document.visibilityState === "hidden" && !force) return;
 
-      if (!force && Date.now() - lastRefetch < 1500) return; // throttle corto de 1.5s (chequeo liviano de ~100 bytes)
+      if (!force && Date.now() - lastRefetch < 1200) return;
       lastRefetch = Date.now();
       try {
         if (containerType === "mi-gestion" && !agentEmail) return;
 
-        // 2. Chequeo ultraliviano (~100 bytes) antes de descargar la lista:
-        // Si no es forzado, verificar si hubo algún cambio global en sek_cases
-        let globalLatestUpdatedAt = "";
-        if (!force) {
-          const { data: latestRow, error: checkErr } = await supabase
-            .from("sek_cases")
-            .select("updated_at,last_message_at")
-            .order("updated_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-          if (!checkErr && latestRow?.updated_at) {
-            globalLatestUpdatedAt = latestRow.updated_at;
-            if (
-              lastKnownMaxUpdatedAtRef.current &&
-              toEpochMs(globalLatestUpdatedAt) <= toEpochMs(lastKnownMaxUpdatedAtRef.current)
-            ) {
-              // Cero cambios en la base de datos: omitir la descarga masiva de casos
-              return;
-            }
-          }
-        }
-
         const curIsAdmin = isUserAdminRef.current;
         const curFilterMode = adminFilterModeRef.current;
         const fetchEmail = containerType === "mi-gestion" ? (agentEmail || undefined) : undefined;
-        let newCases: SekCase[];
+        let newCases: SekCase[] | null = null;
+        let serverMaxUpdatedAt = "";
         const dirtySelectedIds: string[] = [];
         const newlyMessagedIds: string[] = [];
         const matchesSelected = (c: any, curSel: string | null): boolean => {
@@ -1127,74 +1105,86 @@ export function InboxClient({
           return false;
         };
 
-        if (!force && lastKnownMaxUpdatedAtRef.current && allCasesRef.current.length > 0) {
-          const lookbackMs = Date.now() - lastFullOrDeltaSyncAt > 45000 ? 30000 : 5000;
-          const sinceIso = new Date(
-            Math.max(0, toEpochMs(lastKnownMaxUpdatedAtRef.current) - lookbackMs)
-          ).toISOString();
-          const { data: deltaRows, error: deltaErr } = await supabase
-            .from("sek_cases")
-            .select(CASE_LIST_FIELDS)
-            .neq("canal", "simulator")
-            .neq("es_test", true)
-            .gte("updated_at", sinceIso)
-            .order("updated_at", { ascending: false })
-            .limit(50);
-
-          if (!deltaErr && Array.isArray(deltaRows) && deltaRows.length < 50) {
-            lastFullOrDeltaSyncAt = Date.now();
-            if (deltaRows.length === 0) {
-              if (globalLatestUpdatedAt && toEpochMs(globalLatestUpdatedAt) > toEpochMs(lastKnownMaxUpdatedAtRef.current)) {
-                lastKnownMaxUpdatedAtRef.current = globalLatestUpdatedAt;
-              }
-              return;
-            }
-            const curSelNow = selectedIdRef.current;
-            const byId = new Map<string, SekCase>();
-            for (const c of allCasesRef.current) byId.set(String(c.id), c);
-            for (const d of deltaRows as unknown as SekCase[]) {
-              const prev = byId.get(String(d.id));
-              const hasNewerMsg =
-                !prev ||
-                toEpochMs(d.last_message_at) > toEpochMs(prev.last_message_at) ||
-                Boolean(d.last_message_preview && d.last_message_preview !== prev.last_message_preview && toEpochMs(d.updated_at) > toEpochMs(prev.updated_at));
-              const hasUpdated =
-                !prev ||
-                hasNewerMsg ||
-                toEpochMs(d.updated_at) > toEpochMs(prev.updated_at) ||
-                d.estado !== prev.estado ||
-                d.assigned_to !== prev.assigned_to;
-              if (hasUpdated) {
-                invalidateCaseHistoryCache(String(d.id));
-              }
-              const isSelectedRow = matchesSelected(d, curSelNow) || (prev ? matchesSelected(prev, curSelNow) : false);
-              if (isSelectedRow && hasUpdated) {
-                dirtySelectedIds.push(String(d.id));
-              }
-              const estLower = String(d.estado || "").toLowerCase();
-              const isClosed = estLower === "cerrado" || estLower === "resuelto";
-              let mergedRow: SekCase = d;
-              if (isSelectedRow) {
-                mergedRow = { ...d, unread_count: 0 };
-              } else if (hasNewerMsg && !isClosed) {
-                const nextUnread = Math.max(Number(d.unread_count) || 0, (Number(prev?.unread_count) || 0) + 1);
-                mergedRow = { ...d, unread_count: nextUnread };
-                newlyMessagedIds.push(String(d.id));
-              } else if (prev && (Number(prev.unread_count) || 0) > 0 && (Number(d.unread_count) || 0) === 0 && toEpochMs(d.updated_at) === toEpochMs(prev.updated_at)) {
-                mergedRow = { ...d, unread_count: prev.unread_count };
-              }
-              byId.set(String(d.id), mergedRow);
-            }
-            newCases = Array.from(byId.values()).sort((a, b) => {
-              const ta = String(a.last_message_at || a.created_at || "");
-              const tb = String(b.last_message_at || b.created_at || "");
-              return tb.localeCompare(ta);
-            });
-          } else {
-            lastFullOrDeltaSyncAt = Date.now();
-            newCases = await fetchCasesMeta(supabase, 150, fetchEmail, curIsAdmin);
+        try {
+          const params = new URLSearchParams({
+            mode: "list",
+            isAdmin: curIsAdmin ? "1" : "0",
+            force: force || allCasesRef.current.length === 0 ? "1" : "0",
+          });
+          if (fetchEmail) params.set("agent", fetchEmail);
+          if (!force && lastKnownMaxUpdatedAtRef.current) {
+            params.set("since", lastKnownMaxUpdatedAtRef.current);
           }
-        } else {
+
+          const syncRes = await fetch(`/api/cases/live-sync?${params.toString()}`, {
+            cache: "no-store",
+          });
+          if (syncRes.ok) {
+            const syncData = await syncRes.json().catch(() => null);
+            if (syncData?.ok) {
+              if (syncData.maxUpdatedAt) serverMaxUpdatedAt = String(syncData.maxUpdatedAt);
+              if (!syncData.changed) {
+                if (serverMaxUpdatedAt && toEpochMs(serverMaxUpdatedAt) > toEpochMs(lastKnownMaxUpdatedAtRef.current)) {
+                  lastKnownMaxUpdatedAtRef.current = serverMaxUpdatedAt;
+                }
+                return;
+              }
+              const rows = Array.isArray(syncData.cases) ? (syncData.cases as SekCase[]) : [];
+              lastFullOrDeltaSyncAt = Date.now();
+              if (syncData.isFull) {
+                newCases = rows;
+              } else {
+                const curSelNow = selectedIdRef.current;
+                const byId = new Map<string, SekCase>();
+                for (const c of allCasesRef.current) byId.set(String(c.id), c);
+                for (const d of rows) {
+                  const prev = byId.get(String(d.id));
+                  const hasNewerMsg =
+                    !prev ||
+                    toEpochMs(d.last_message_at) > toEpochMs(prev.last_message_at) ||
+                    Boolean(d.last_message_preview && d.last_message_preview !== prev.last_message_preview && toEpochMs(d.updated_at) > toEpochMs(prev.updated_at));
+                  const hasUpdated =
+                    !prev ||
+                    hasNewerMsg ||
+                    toEpochMs(d.updated_at) > toEpochMs(prev.updated_at) ||
+                    d.estado !== prev.estado ||
+                    d.assigned_to !== prev.assigned_to ||
+                    d.title !== prev.title ||
+                    (d as any).marca !== (prev as any).marca ||
+                    (d as any).modelo !== (prev as any).modelo;
+                  if (hasUpdated) {
+                    invalidateCaseHistoryCache(String(d.id));
+                  }
+                  const isSelectedRow = matchesSelected(d, curSelNow) || (prev ? matchesSelected(prev, curSelNow) : false);
+                  if (isSelectedRow && hasUpdated) {
+                    dirtySelectedIds.push(String(d.id));
+                  }
+                  const estLower = String(d.estado || "").toLowerCase();
+                  const isClosed = estLower === "cerrado" || estLower === "resuelto";
+                  let mergedRow: SekCase = d;
+                  if (isSelectedRow) {
+                    mergedRow = { ...d, unread_count: 0 };
+                  } else if (hasNewerMsg && !isClosed) {
+                    const nextUnread = Math.max(Number(d.unread_count) || 0, (Number(prev?.unread_count) || 0) + 1);
+                    mergedRow = { ...d, unread_count: nextUnread };
+                    newlyMessagedIds.push(String(d.id));
+                  } else if (prev && (Number(prev.unread_count) || 0) > 0 && (Number(d.unread_count) || 0) === 0 && toEpochMs(d.updated_at) === toEpochMs(prev.updated_at)) {
+                    mergedRow = { ...d, unread_count: prev.unread_count };
+                  }
+                  byId.set(String(d.id), mergedRow);
+                }
+                newCases = Array.from(byId.values()).sort((a, b) => {
+                  const ta = String(a.last_message_at || a.created_at || "");
+                  const tb = String(b.last_message_at || b.created_at || "");
+                  return tb.localeCompare(ta);
+                });
+              }
+            }
+          }
+        } catch {}
+
+        // Respaldo directo si live-sync no respondió
+        if (!newCases) {
           lastFullOrDeltaSyncAt = Date.now();
           newCases = await fetchCasesMeta(supabase, 150, fetchEmail, curIsAdmin);
         }
@@ -1202,8 +1192,8 @@ export function InboxClient({
         // Actualizar el timestamp más reciente conocido usando comparación numérica desde Postgres
         const newMax = getMaxUpdatedAt(newCases);
         const bestMax =
-          toEpochMs(globalLatestUpdatedAt) > toEpochMs(newMax)
-            ? globalLatestUpdatedAt
+          toEpochMs(serverMaxUpdatedAt) > toEpochMs(newMax)
+            ? serverMaxUpdatedAt
             : newMax;
         if (bestMax && toEpochMs(bestMax) > toEpochMs(lastKnownMaxUpdatedAtRef.current)) {
           lastKnownMaxUpdatedAtRef.current = bestMax;
@@ -1336,11 +1326,11 @@ export function InboxClient({
         }, 8000)
       : null;
 
-    /* Polling activo de respaldo cada 8s mientras la pestaña esté visible (chequeo de ~100 bytes + delta sync) */
+    /* Polling activo de respaldo vía servidor cada 4s mientras la pestaña esté visible */
     const poll = setInterval(() => {
       if (!isTabVisible()) return;
       doRefetch(false);
-    }, 8000);
+    }, 4000);
 
     /* Refetch al volver a la ventana (pasa por el chequeo liviano de 60 bytes) */
     const handleFocus = () => {

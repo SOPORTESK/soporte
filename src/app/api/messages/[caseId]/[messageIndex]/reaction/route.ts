@@ -139,7 +139,7 @@ export async function POST(
 
   const { error: updateError } = await supabase
     .from("sek_cases")
-    .update({ [historyType]: updatedHistory })
+    .update({ [historyType]: updatedHistory, updated_at: new Date().toISOString() })
     .eq("id", targetCaseId);
 
   if (updateError) {
